@@ -1,0 +1,15 @@
+[Unit]
+Description=Phabricator Repos Synchronization
+
+[Service]
+Environment=PYTHONPATH=/opt/pywikibot/core:/opt/pywikibot/core/externals:/opt/pywikibot/core/scripts:${PYTHONPATH}
+Environment='PYWIKIBOT2_DIR=/home/kerb/.pywikibot/JSS 9'
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/kerb/bin/phab-sync.py
+TimeoutStopSec=300
+KillMode=process
+RestartSec=10
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

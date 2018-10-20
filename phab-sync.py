@@ -13,6 +13,17 @@ import git
 import pywikibot as pwb
 
 
+class SignalHandler:
+
+    def __init__(self):
+        self.exit_requested = False
+        signal.signal(signal.SIGINT, self._request_exit)
+        signal.signal(signal.SIGTERM, self._request_exit)
+
+    def _request_exit(self, signal, frame):
+        self.exit_requested = True
+
+
 class PhabRepo:
 
     def __init__(self, repo, site, ns, t_re):
@@ -65,18 +76,13 @@ class PhabRepo:
         self.repo.git.push()
 
 
-def exit_signal_handler(signal, frame):
-    sys.exit(0)
-
-
 def main_thread(repos):
     for repo in repos:
         repo.update()
 
 
 def main(argv):
-    signal.signal(signal.SIGINT, exit_signal_handler)
-    signal.signal(signal.SIGTERM, exit_signal_handler)
+    sig_handler = SignalHandler()
 
     rpath_base = '/home/kerb/.local/share/phab-sync/repos'
     rname_spam = 'spam'
@@ -116,6 +122,9 @@ def main(argv):
     while True:
         print('Running...')
         main_thread(repos)
+        if sig_handler.exit_requested:
+            print('SIGINT or SIGTERM received, exiting...')
+            break
         print('Sleeping...')
         time.sleep(60)
 
