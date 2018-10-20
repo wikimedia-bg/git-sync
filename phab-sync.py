@@ -38,9 +38,9 @@ class SignalHandler:
         if self._exit_requested:
             self._exit_now()
         else:
-            self._is_sleeping=True
+            self._is_sleeping = True
             time.sleep(seconds)
-            self._is_sleeping=False
+            self._is_sleeping = False
 
 
 class PhabRepo:
@@ -143,6 +143,7 @@ def main(argv):
         sync_thread(repos)
         print('Sleeping...')
         sig_handler.sleep()
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
