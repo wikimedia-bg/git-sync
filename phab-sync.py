@@ -95,7 +95,7 @@ class PhabRepo:
         self.repo.git.push()
 
 
-def main_thread(repos):
+def sync_thread(repos):
     for repo in repos:
         repo.update()
 
@@ -140,7 +140,7 @@ def main(argv):
 
     while True:
         print('Running...')
-        main_thread(repos)
+        sync_thread(repos)
         print('Sleeping...')
         sig_handler.sleep()
 
