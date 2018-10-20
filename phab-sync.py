@@ -13,15 +13,34 @@ import git
 import pywikibot as pwb
 
 
+SLEEP_SEC = 60
+
+
 class SignalHandler:
 
     def __init__(self):
+        self.is_sleeping = False
         self.exit_requested = False
         signal.signal(signal.SIGINT, self._request_exit)
         signal.signal(signal.SIGTERM, self._request_exit)
 
     def _request_exit(self, signal, frame):
-        self.exit_requested = True
+        if self.is_sleeping:
+            self.exit_now()
+        else:
+            self.exit_requested = True
+
+    def sleep(self, seconds=SLEEP_SEC):
+        if self.exit_requested:
+            self.exit_now()
+        else:
+            self.is_sleeping=True
+            time.sleep(seconds)
+            self.is_sleeping=False
+
+    def exit_now(self):
+        print('SIGINT or SIGTERM received, exiting...')
+        sys.exit(0)
 
 
 class PhabRepo:
@@ -122,11 +141,8 @@ def main(argv):
     while True:
         print('Running...')
         main_thread(repos)
-        if sig_handler.exit_requested:
-            print('SIGINT or SIGTERM received, exiting...')
-            break
         print('Sleeping...')
-        time.sleep(60)
+        sig_handler.sleep()
 
 if __name__ == '__main__':
     main(sys.argv[1:])
