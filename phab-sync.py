@@ -19,13 +19,13 @@ SLEEP_SEC = 60
 class SignalHandler:
 
     def __init__(self):
-        self.is_sleeping = False
+        self._is_sleeping = False
         self.exit_requested = False
         signal.signal(signal.SIGINT, self._request_exit)
         signal.signal(signal.SIGTERM, self._request_exit)
 
     def _request_exit(self, signal, frame):
-        if self.is_sleeping:
+        if self._is_sleeping:
             self._exit_now()
         else:
             self.exit_requested = True
@@ -38,9 +38,9 @@ class SignalHandler:
         if self.exit_requested:
             self._exit_now()
         else:
-            self.is_sleeping=True
+            self._is_sleeping=True
             time.sleep(seconds)
-            self.is_sleeping=False
+            self._is_sleeping=False
 
 
 class PhabRepo:
