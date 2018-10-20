@@ -26,21 +26,21 @@ class SignalHandler:
 
     def _request_exit(self, signal, frame):
         if self.is_sleeping:
-            self.exit_now()
+            self._exit_now()
         else:
             self.exit_requested = True
 
+    def _exit_now(self):
+        print('SIGINT or SIGTERM received, exiting...')
+        sys.exit(0)
+
     def sleep(self, seconds=SLEEP_SEC):
         if self.exit_requested:
-            self.exit_now()
+            self._exit_now()
         else:
             self.is_sleeping=True
             time.sleep(seconds)
             self.is_sleeping=False
-
-    def exit_now(self):
-        print('SIGINT or SIGTERM received, exiting...')
-        sys.exit(0)
 
 
 class PhabRepo:
