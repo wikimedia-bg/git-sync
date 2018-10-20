@@ -20,7 +20,7 @@ class SignalHandler:
 
     def __init__(self):
         self._is_sleeping = False
-        self.exit_requested = False
+        self._exit_requested = False
         signal.signal(signal.SIGINT, self._request_exit)
         signal.signal(signal.SIGTERM, self._request_exit)
 
@@ -28,14 +28,14 @@ class SignalHandler:
         if self._is_sleeping:
             self._exit_now()
         else:
-            self.exit_requested = True
+            self._exit_requested = True
 
     def _exit_now(self):
         print('SIGINT or SIGTERM received, exiting...')
         sys.exit(0)
 
     def sleep(self, seconds=SLEEP_SEC):
-        if self.exit_requested:
+        if self._exit_requested:
             self._exit_now()
         else:
             self._is_sleeping=True
