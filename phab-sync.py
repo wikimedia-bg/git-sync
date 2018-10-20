@@ -38,8 +38,8 @@ class PhabRepo:
         return revs
 
     def update(self):
-        self.repo.git.pull()
         for rev in self._revlist():
+            self.repo.git.pull()
             file_name = rev[0].replace('/', '.d/')
             file_path = os.path.join(self.repo.working_dir, file_name)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
