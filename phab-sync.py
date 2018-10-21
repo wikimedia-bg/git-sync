@@ -69,12 +69,6 @@ class PhabRepo:
 
     def update(self):
         for rev in self._revlist():
-            self.repo.git.pull()
-            file_name = rev[0].replace('/', '.d/')
-            file_path = os.path.join(self.repo.working_dir, file_name)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, 'w') as f:
-                f.write(rev[1]['text'])
             if rev[1]['user'] == 'Iliev':
                 user_mail = 'luchesar.iliev@gmail.com'
             else:
@@ -83,6 +77,14 @@ class PhabRepo:
                 comment = '*** празно резюме ***'
             else:
                 comment = rev[1]['comment']
+            file_name = rev[0].replace('/', '.d/')
+            file_path = os.path.join(self.repo.working_dir, file_name)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            # To avoid conflicts as much as possible, perform git pull right before we apply the
+            # change and commit it.
+            self.repo.git.pull()
+            with open(file_path, 'w') as f:
+                f.write(rev[1]['text'])
             self.repo.index.add([file_path])
             author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
