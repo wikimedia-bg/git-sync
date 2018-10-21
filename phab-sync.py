@@ -47,6 +47,7 @@ class SignalHandler:
 class PhabRepo:
 
     def __init__(self, repo, site, ns, t_re):
+        self._changed_paths = []
         self.repo = repo
         self.site = site
         self.ns = ns
@@ -68,6 +69,17 @@ class PhabRepo:
         revs.sort(key=lambda rev: rev[1]['timestamp'])
         return revs
 
+    def pull(self):
+        old_master = self.repo.commit('master')
+        self.repo.git.pull()
+        # Obtain all changed files in this pull.
+        self._changed_paths += self.repo.git.diff_tree(
+                '--no-commit-id',
+                '--name-only',
+                '-r',
+                old_master,
+                self.repo.commit('master')).split('\n')
+
     def update(self):
         for rev in self._revlist():
             if rev[1]['user'] == BOT_USERNAME:
@@ -85,7 +97,7 @@ class PhabRepo:
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             # To avoid conflicts as much as possible, perform git pull right before we apply the
             # change and commit it.
-            self.repo.git.pull()
+            self.pull()
             with open(file_path, 'w') as f:
                 f.write(rev[1]['text'])
             self.repo.index.add([file_path])
