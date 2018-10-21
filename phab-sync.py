@@ -109,7 +109,8 @@ class PhabRepo:
                     committer=committer,
                     author_date=str(rev[1]['timestamp'])[:-1],
                     commit_date=str(rev[1]['timestamp'])[:-1])
-        self.repo.git.push()
+            # Push after each commit. It's inefficient, but should minimize possible conflicts.
+            self.repo.git.push()
 
 
 def sync_thread(repos):
