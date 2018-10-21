@@ -13,6 +13,7 @@ import git
 import pywikibot as pwb
 
 
+BOT_USERNAME = 'JSS 9'
 SLEEP_SEC = 60
 
 
@@ -69,7 +70,9 @@ class PhabRepo:
 
     def update(self):
         for rev in self._revlist():
-            if rev[1]['user'] == 'Iliev':
+            if rev[1]['user'] == BOT_USERNAME:
+                continue
+            elif rev[1]['user'] == 'Iliev':
                 user_mail = 'luchesar.iliev@gmail.com'
             else:
                 user_mail = ''
