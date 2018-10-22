@@ -45,16 +45,17 @@ class SignalHandler:
 
 class PhabRepo:
 
-    def __init__(self, repo, site, ns, t_re, ignores):
+    def __init__(self, repo, site, namespace, title_regex, force_ext, ignores):
         self.repo = repo
         self.site = site
-        self.ns = ns
-        self.t_re = t_re
+        self.namespace = namespace
+        self.title_regex = title_regex
+        self.force_ext = force_ext
         self.ignores = ignores
         self._pending_files = []
 
     def _allpages(self):
-        return self.site.allpages(namespace=self.ns)
+        return self.site.allpages(namespace=self.namespace)
 
     def _last_changed(self):
         return dt.utcfromtimestamp(self.repo.commit('master').authored_date) + td(seconds=1)
@@ -63,7 +64,7 @@ class PhabRepo:
         revs = []
         for page in self._allpages():
             page_name = page.title(with_ns=False)
-            if self.t_re.search(page_name):
+            if self.title_regex.search(page_name):
                 for rev in page.revisions(endtime=self._last_changed(), content=True):
                     revs.append((page_name, rev))
         revs.sort(key=lambda rev: rev[1]['timestamp'])
@@ -93,7 +94,13 @@ class PhabRepo:
                 comment = '*** празно резюме ***'
             else:
                 comment = rev[1]['comment']
+            # We cannot have both a file and a directory with the same name, so where we have
+            # 'Page' and 'Page/doc', the latter gets converted to 'Page.d/doc'.
             file_name = rev[0].replace('/', '.d/')
+            # If we've configured a file extension for syntax highlighting, add it, but only for
+            # files in the root of the namespace/repository (the rest will likely be 'Page/doc').
+            if self.force_ext and '.d/' not in file_name:
+                file_name = file_name + '.' + self.force_ext
             file_path = os.path.join(self.repo.working_dir, file_name)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             # To avoid conflicts as much as possible, perform git pull right before we apply the
@@ -104,6 +111,7 @@ class PhabRepo:
             self.repo.index.add([file_path])
             author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
+            print('Syncing to Phabricator: {}'.format(file_name))
             self.repo.index.commit(
                     comment,
                     author=author,
@@ -117,11 +125,25 @@ class PhabRepo:
 
     def _phab2wiki(self, files_tosync):
         for file_name in files_tosync:
+            # We cannot have both a file and a directory with the same name, so where we have
+            # 'Page' and 'Page/doc', the latter was converted to 'Page.d/doc'.
+            page_name = self.namespace + ':' + file_name.replace('.d/', '/')
+            # If we've configured a file extension for syntax highlighting, remove it, but only for
+            # files in the root of the namespace/repository (the rest will likely be 'Page/doc').
+            if self.force_ext and '/' not in page_name:
+                page_name = page_name.replace('.' + self.force_ext, '')
+            page = pwb.Page(self.site, page_name)
             file_path = os.path.join(self.repo.working_dir, file_name)
-            page = pwb.Page(self.site, self.ns + ':' + file_name.replace('.d/', '/'))
-            with open(file_path, 'r') as f:
-                page.text = f.read()
-            page.save('Sync from Phabricator', botflag=True)
+            try:
+                with open(file_path, 'r') as f:
+                    page.text = f.read()
+                print('Saving {}'.format(page.title()))
+                page.save(summary='Committing changes from Phabricator', botflag=True, quiet=True)
+            except FileNotFoundError:
+                print('Deleting {}'.format(page.title()))
+                page.delete(reason='Committing changes from Phabricator', prompt=False)
+            except pwb.data.api.APIError as e:
+                print('APIError exception: {}'.format(str(e)), file=sys.stderr)
 
     def sync(self):
         w2ph_synced_files = self._wiki2phab()
@@ -136,6 +158,7 @@ class PhabRepo:
         # We also remove the list of files to ignore, e.g. .arcconfig, .arclint, etc.
         ph2w_files_tosync = set(ph2w_pending_files) - set(w2ph_synced_files) - set(self.ignores)
         if ph2w_files_tosync:
+            print('Syncing to Wikipedia: {}'.format(ph2w_files_tosync))
             self._phab2wiki(ph2w_files_tosync)
             self._pending_files = []
 
@@ -153,7 +176,8 @@ def init_repos(config):
                 fam=repo['project']['family'],
                 user=config['mediawiki_username'],
                 sysop=config['mediawiki_username'])
-        repos.append(PhabRepo(git_repo, site, repo['namespace'], file_regex,
+        repos.append(PhabRepo(git_repo, site, repo['namespace'],
+                              file_regex, repo['force_extension'],
                               repo['ignore_list'] + config['global_ignore_list']))
     return repos
 

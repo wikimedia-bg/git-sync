@@ -16,7 +16,8 @@
       "namespace": "Module",
       "file_regex": ".*",
       "regex_case": false,
-      "ignore_list": []
+      "ignore_list": [],
+      "force_extension": "lua"
     },
     {
       "name": "spam",
@@ -27,7 +28,8 @@
       "namespace": "MediaWiki",
       "file_regex": "^Spam",
       "regex_case": false,
-      "ignore_list": []
+      "ignore_list": [],
+      "force_extension": null
     },
     {
       "name": "tbl",
@@ -38,7 +40,8 @@
       "namespace": "MediaWiki",
       "file_regex": "^Title",
       "regex_case": false,
-      "ignore_list": []
+      "ignore_list": [],
+      "force_extension": null
     },
     {
       "name": "ui",
@@ -49,7 +52,8 @@
       "namespace": "MediaWiki",
       "file_regex": "(^gadgets?-|\\.(css|js)\\b)",
       "regex_case": true,
-      "ignore_list": []
+      "ignore_list": [],
+      "force_extension": null
     }
   ]
 }
