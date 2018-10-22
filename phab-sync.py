@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-from datetime import datetime as dt
-from datetime import timedelta as td
+import json
 import os
 import os.path
 import re
@@ -9,12 +8,12 @@ import signal
 import sys
 import time
 
+from datetime import datetime as dt
+from datetime import timedelta as td
+from pathlib import Path
+
 import git
 import pywikibot as pwb
-
-
-BOT_USERNAME = 'PSS 9'
-SLEEP_SEC = 10
 
 
 class SignalHandler:
@@ -35,7 +34,7 @@ class SignalHandler:
         print('SIGINT or SIGTERM received, exiting...')
         sys.exit(0)
 
-    def sleep(self, seconds=SLEEP_SEC):
+    def sleep(self, seconds):
         if self._exit_requested:
             self._exit_now()
         else:
@@ -46,11 +45,12 @@ class SignalHandler:
 
 class PhabRepo:
 
-    def __init__(self, repo, site, ns, t_re):
+    def __init__(self, repo, site, ns, t_re, ignores):
         self.repo = repo
         self.site = site
         self.ns = ns
         self.t_re = t_re
+        self.ignores = ignores
         self._pending_files = []
 
     def _allpages(self):
@@ -83,7 +83,7 @@ class PhabRepo:
     def _wiki2phab(self):
         revs = self._revlist()
         for rev in revs:
-            if rev[1]['user'] == BOT_USERNAME:
+            if rev[1]['user'] == self.site.username():
                 continue
             elif rev[1]['user'] == 'Iliev':
                 user_mail = 'luchesar.iliev@gmail.com'
@@ -133,60 +133,60 @@ class PhabRepo:
         # one sync operation a page is changed both on Wikipedia and on Phabricator, the Wikipedia
         # version wins. We do this by simply substracting the list of files that were updated on
         # Wikipedia from the list of files updated on Phabricator (converting to a set() first).
-        ph2w_files_tosync = set(ph2w_pending_files) - set(w2ph_synced_files)
+        # We also remove the list of files to ignore, e.g. .arcconfig, .arclint, etc.
+        ph2w_files_tosync = set(ph2w_pending_files) - set(w2ph_synced_files) - set(self.ignores)
         if ph2w_files_tosync:
             self._phab2wiki(ph2w_files_tosync)
             self._pending_files = []
 
 
-def sync_repos(repos):
-    for repo in repos:
-        repo.sync()
+def init_repos(config):
+    repos = []
+    for repo in config['repos']:
+        file_regex = re.compile(
+                repo['file_regex'],
+                re.I if repo['regex_case'] else 0)
+        repo_path = os.path.join(config['repositories_root'], repo['name'])
+        git_repo = git.Repo(repo_path)
+        site = pwb.Site(
+                code=repo['project']['code'],
+                fam=repo['project']['family'],
+                user=config['mediawiki_username'],
+                sysop=config['mediawiki_username'])
+        repos.append(PhabRepo(git_repo, site, repo['namespace'], file_regex,
+                              repo['ignore_list'] + config['global_ignore_list']))
+    return repos
+
+
+def read_config():
+    config_file_name = 'phab-sync.config.json'
+    config_files = [
+            config_file_name,
+            os.path.join(Path.home(), '.config/phab-sync', config_file_name),
+            os.path.join('/etc/phab-sync', config_file_name),
+            ]
+    for config_file in config_files:
+        if os.path.exists(config_file):
+            with open(config_file, 'rb') as f:
+                config = json.load(f)
+            break
+    try:
+        return(config)
+    except UnboundLocalError:
+        print('Error: Configuration file not found.', file=sys.stderr)
+        sys.exit(1)
 
 
 def main(argv):
     sig_handler = SignalHandler()
-
-    rpath_base = '/home/kerb/.local/share/phab-sync/repos'
-    rname_spam = 'spam'
-    rname_tbl = 'tbl'
-    rname_lua = 'lua'
-    rname_ui = 'ui'
-
-    rpath_spam = os.path.join(rpath_base, rname_spam)
-    rpath_tbl = os.path.join(rpath_base, rname_tbl)
-    rpath_lua = os.path.join(rpath_base, rname_lua)
-    rpath_ui = os.path.join(rpath_base, rname_ui)
-
-    repo_spam = git.Repo(rpath_spam)
-    repo_tbl = git.Repo(rpath_tbl)
-    repo_lua = git.Repo(rpath_lua)
-    repo_ui = git.Repo(rpath_ui)
-
-    re_spam = re.compile(r'^Spam')
-    re_tbl = re.compile(r'^Title')
-    re_lua = re.compile(r'.*')
-    re_ui = re.compile(r'(^gadgets?-|\.(css|js)\b)', re.I)
-
-    site = pwb.Site()
-
-    r_spam = PhabRepo(repo_spam, site, 'MediaWiki', re_spam)
-    r_tbl = PhabRepo(repo_tbl, site, 'MediaWiki', re_tbl)
-    r_lua = PhabRepo(repo_lua, site, 'Module', re_lua)
-    r_ui = PhabRepo(repo_ui, site, 'MediaWiki', re_ui)
-
-    repos = [
-            r_spam,
-            r_tbl,
-            r_lua,
-            r_ui,
-            ]
-
+    config = read_config()
+    repos = init_repos(config)
     while True:
-        print('Running...')
-        sync_repos(repos)
+        for repo in repos:
+            print('Syncing repo "{}"...'.format(repo.repo.git_dir))
+            repo.sync()
         print('Sleeping...')
-        sig_handler.sleep()
+        sig_handler.sleep(config['daemon_sleep_seconds'])
 
 
 if __name__ == '__main__':

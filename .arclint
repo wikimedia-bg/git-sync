@@ -6,6 +6,10 @@
       "flags": [
         "--max-line-length=100"
       ]
+    },
+    "json": {
+      "type": "json",
+      "include": "(\\.json$)"
     }
   }
 }

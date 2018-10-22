@@ -1,0 +1,55 @@
+{
+  "daemon_sleep_seconds": 60,
+  "mediawiki_username": "PSS 9",
+  "repositories_root": "/home/kerb/.local/share/phab-sync/repos",
+  "global_ignore_list": [
+    ".arcconfig",
+    ".arclint"
+  ],
+  "repos": [
+    {
+      "name": "lua",
+      "project": {
+        "family": "wikipedia",
+        "code": "bg"
+      },
+      "namespace": "Module",
+      "file_regex": ".*",
+      "regex_case": false,
+      "ignore_list": []
+    },
+    {
+      "name": "spam",
+      "project": {
+        "family": "wikipedia",
+        "code": "bg"
+      },
+      "namespace": "MediaWiki",
+      "file_regex": "^Spam",
+      "regex_case": false,
+      "ignore_list": []
+    },
+    {
+      "name": "tbl",
+      "project": {
+        "family": "wikipedia",
+        "code": "bg"
+      },
+      "namespace": "MediaWiki",
+      "file_regex": "^Title",
+      "regex_case": false,
+      "ignore_list": []
+    },
+    {
+      "name": "ui",
+      "project": {
+        "family": "wikipedia",
+        "code": "bg"
+      },
+      "namespace": "MediaWiki",
+      "file_regex": "(^gadgets?-|\\.(css|js)\\b)",
+      "regex_case": true,
+      "ignore_list": []
+    }
+  ]
+}
