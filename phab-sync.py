@@ -43,11 +43,45 @@ class SignalHandler:
             self._is_sleeping = False
 
 
+class LogPage(pwb.Page):
+
+    def __init__(self, source, title):
+        super().__init__(source, title)
+
+    def log(self, log_type, user, repo_name, commit_sha,
+            datetime, message, target_page, oldid=None):
+        page_link = {
+                'edit': '| {{{{diff|prev|{oldid}|{page}}}}} |',
+                'delete': '| {{{{del|{page}}}}} |',
+                'conflict': '| [[{page}]] |'
+                }
+        self.text = self.text.replace(
+                '{{/Header}}',
+                '{{{{/Header}}}}\n'
+                '| {{{{/{log_type}}}}} |'.format(log_type=log_type)
+                + page_link[log_type].format(oldid=oldid, page=target_page) +
+                '| {{{{потребител|{user}}}}} |'
+                '| {{{{ph|source/{repo}/commit/{sha}|{datetime}}}}} |'
+                '| {message}\n|-'.format(
+                    user=user,
+                    repo=repo_name,
+                    sha=commit_sha,
+                    datetime=datetime,
+                    message=message))
+        try:
+            self.save(summary='Регистриране на ново действие в дневника.',
+                      botflag=True, quiet=True)
+        except pwb.data.api.APIError as e:
+            print('APIError exception: {}'.format(str(e)), file=sys.stderr)
+
+
 class PhabRepo:
 
-    def __init__(self, repo, site, namespace, title_regex, force_ext, ignores):
+    def __init__(self, name, repo, site, log_page, namespace, title_regex, force_ext, ignores):
+        self.name = name
         self.repo = repo
         self.site = site
+        self.log_page = log_page
         self.namespace = namespace
         self.title_regex = title_regex
         self.force_ext = force_ext
@@ -141,11 +175,6 @@ class PhabRepo:
         commit_list = list(self._pending_commits)
         for commit in commit_list:
             for file_name in self._pending_commits[commit][3]:
-                if file_name in synced_from_wiki:
-                    # This page has been updated on the wiki in this sync run. To be on the safe
-                    # side, we'll discard the possibly conflicting changes from Phabricator.
-                    print('Ignoring possibly conflicting changes in {}'.format(file_name))
-                    continue
                 # We cannot have both a file and a directory with the same name, so where we have
                 # 'Page' and 'Page/doc', the latter was converted to 'Page.d/doc'.
                 page_name = self.namespace + ':' + file_name.replace('.d/', '/')
@@ -154,6 +183,19 @@ class PhabRepo:
                 if self.force_ext and '/' not in page_name:
                     page_name = page_name.replace('.' + self.force_ext, '')
                 page = pwb.Page(self.site, page_name)
+                if file_name in synced_from_wiki:
+                    # This page has been updated on the wiki in this sync run. To be on the safe
+                    # side, we'll discard the possibly conflicting changes from Phabricator.
+                    print('Ignoring possibly conflicting changes in {}'.format(file_name))
+                    self.log_page.log(
+                            log_type='conflict',
+                            user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                            repo_name=self.name,
+                            commit_sha=commit.hexsha,
+                            datetime=self._pending_commits[commit][1],
+                            message=self._pending_commits[commit][2],
+                            target_page=page.title())
+                    continue
                 file_removed = False
                 try:
                     file_git_blob = self.repo.commit(commit).tree.join(file_name)
@@ -175,6 +217,17 @@ class PhabRepo:
                                 botflag=True, quiet=True)
                     except pwb.data.api.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
+                    else:
+                        self.log_page.log(
+                                log_type='edit',
+                                user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                                repo_name=self.name,
+                                commit_sha=commit.hexsha,
+                                datetime=self._pending_commits[commit][1],
+                                message=self._pending_commits[commit][2],
+                                target_page=page.title(),
+                                oldid=page.latest_revision_id)
+                # if file_removed is True.
                 else:
                     print('Deleting {}'.format(page.title()))
                     try:
@@ -186,6 +239,15 @@ class PhabRepo:
                                 prompt=False)
                     except pwb.data.api.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
+                    else:
+                        self.log_page.log(
+                                log_type='delete',
+                                user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                                repo_name=self.name,
+                                commit_sha=commit.hexsha,
+                                datetime=self._pending_commits[commit][1],
+                                message=self._pending_commits[commit][2],
+                                target_page=page.title())
             # When all files in a commit have been processed, remove it from the pending list.
             del self._pending_commits[commit]
 
@@ -209,8 +271,9 @@ def init_repos(config):
                 fam=repo['project']['family'],
                 user=config['mediawiki_username'],
                 sysop=config['mediawiki_username'])
-        repos.append(PhabRepo(git_repo, site, repo['namespace'],
-                              file_regex, repo['force_extension'],
+        log_page = LogPage(site, repo['log_page'])
+        repos.append(PhabRepo(repo['name'], git_repo, site, log_page,
+                              repo['namespace'], file_regex, repo['force_extension'],
                               repo['ignore_list'] + config['global_ignore_list']))
     return repos
 

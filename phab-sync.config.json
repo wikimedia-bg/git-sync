@@ -17,7 +17,8 @@
       "file_regex": ".*",
       "regex_case": false,
       "ignore_list": [],
-      "force_extension": "lua"
+      "force_extension": "lua",
+      "log_page": "Потребител:JSS 9/Дневник"
     },
     {
       "name": "spam",
@@ -29,7 +30,8 @@
       "file_regex": "^Spam",
       "regex_case": false,
       "ignore_list": [],
-      "force_extension": null
+      "force_extension": null,
+      "log_page": "Потребител:JSS 9/Дневник"
     },
     {
       "name": "tbl",
@@ -41,7 +43,8 @@
       "file_regex": "^Title",
       "regex_case": false,
       "ignore_list": [],
-      "force_extension": null
+      "force_extension": null,
+      "log_page": "Потребител:JSS 9/Дневник"
     },
     {
       "name": "ui",
@@ -53,7 +56,8 @@
       "file_regex": "(^gadgets?-|\\.(css|js)\\b)",
       "regex_case": true,
       "ignore_list": [],
-      "force_extension": null
+      "force_extension": null,
+      "log_page": "Потребител:JSS 9/Дневник"
     }
   ]
 }
