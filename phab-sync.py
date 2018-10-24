@@ -52,7 +52,7 @@ class PhabRepo:
         self.title_regex = title_regex
         self.force_ext = force_ext
         self.ignores = ignores
-        self._pending_files = []
+        self._pending_commits = {}
 
     def _allpages(self):
         return self.site.allpages(namespace=self.namespace)
@@ -73,16 +73,28 @@ class PhabRepo:
     def _pull(self):
         old_master = self.repo.commit('master')
         self.repo.git.pull()
-        # Obtain all changed files in this pull.
-        self._pending_files += self.repo.git.diff_tree(
-                '--no-commit-id',
-                '--name-only',
-                '-r',
-                old_master,
-                self.repo.commit('master')).split('\n')
+        new_master = self.repo.commit('master')
+        if new_master == old_master:
+            return
+        pull_commits_newest_first = self.repo.iter_commits(
+                old_master.hexsha + '...' + self.repo.commit('master').hexsha)
+        pull_commits = reversed([_ for _ in pull_commits_newest_first])
+        # This requires Python 3.7+ to keep the insertion order of the dictionary.
+        for commit in pull_commits:
+            self._pending_commits[commit] = (
+                    self.repo.commit(commit).committer,
+                    self.repo.commit(commit).committed_datetime,
+                    self.repo.commit(commit).message.replace('\n', ''),
+                    self.repo.git.diff_tree(
+                            '--no-commit-id',
+                            '--name-only',
+                            '-r',
+                            commit.parents[0], commit).split('\n')
+                    )
 
     def _wiki2phab(self):
         revs = self._revlist()
+        synced_files = []
         for rev in revs:
             if rev[1]['user'] == self.site.username():
                 continue
@@ -120,47 +132,68 @@ class PhabRepo:
                     commit_date=str(rev[1]['timestamp'])[:-1])
             # Push after each commit. It's inefficient, but should minimize possible conflicts.
             self.repo.git.push()
-        # Return the list of files that have been synced from Wikipedia.
-        return [_[0].replace('/', '.d/') for _ in revs]
+            synced_files.append(file_name)
+        return synced_files
 
-    def _phab2wiki(self, files_tosync):
-        for file_name in files_tosync:
-            # We cannot have both a file and a directory with the same name, so where we have
-            # 'Page' and 'Page/doc', the latter was converted to 'Page.d/doc'.
-            page_name = self.namespace + ':' + file_name.replace('.d/', '/')
-            # If we've configured a file extension for syntax highlighting, remove it, but only for
-            # files in the root of the namespace/repository (the rest will likely be 'Page/doc').
-            if self.force_ext and '/' not in page_name:
-                page_name = page_name.replace('.' + self.force_ext, '')
-            page = pwb.Page(self.site, page_name)
-            file_path = os.path.join(self.repo.working_dir, file_name)
-            try:
-                with open(file_path, 'r') as f:
-                    page.text = f.read()
-                print('Saving {}'.format(page.title()))
-                page.save(summary='Committing changes from Phabricator', botflag=True, quiet=True)
-            except FileNotFoundError:
-                print('Deleting {}'.format(page.title()))
-                page.delete(reason='Committing changes from Phabricator', prompt=False)
-            except pwb.data.api.APIError as e:
-                print('APIError exception: {}'.format(str(e)), file=sys.stderr)
+    def _phab2wiki(self, synced_from_wiki):
+        # Iterate over a list of the keys, instead of directly on the dictionary. This allows to
+        # delete the pending commits from the latter once they are processed.
+        commit_list = list(self._pending_commits)
+        for commit in commit_list:
+            for file_name in self._pending_commits[commit][3]:
+                if file_name in synced_from_wiki:
+                    # This page has been updated on the wiki in this sync run. To be on the safe
+                    # side, we'll discard the possibly conflicting changes from Phabricator.
+                    print('Ignoring possibly conflicting changes in {}'.format(file_name))
+                    continue
+                # We cannot have both a file and a directory with the same name, so where we have
+                # 'Page' and 'Page/doc', the latter was converted to 'Page.d/doc'.
+                page_name = self.namespace + ':' + file_name.replace('.d/', '/')
+                # If we've configured a file extension for syntax highlighting, remove it, but only
+                # for files in the root of the namespace/repo (the rest will likely be 'Page/doc').
+                if self.force_ext and '/' not in page_name:
+                    page_name = page_name.replace('.' + self.force_ext, '')
+                page = pwb.Page(self.site, page_name)
+                file_removed = False
+                try:
+                    file_git_blob = self.repo.commit(commit).tree.join(file_name)
+                except KeyError as e:
+                    if str(e).endswith('\'{file}\' not found"'.format(file=file_name)):
+                        file_removed = True
+                    else:
+                        print('WARNING: Unexpected KeyError exception in _phab2wiki().')
+                if not file_removed:
+                    file_contents_at_commit = b''.join(file_git_blob.data_stream[3].readlines())
+                    page.text = file_contents_at_commit.decode('utf-8')
+                    print('Saving {}'.format(page.title()))
+                    try:
+                        page.save(
+                                summary='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
+                                    user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                                    datetime=self._pending_commits[commit][1],
+                                    message=self._pending_commits[commit][2]),
+                                botflag=True, quiet=True)
+                    except pwb.data.api.APIError as e:
+                        print('APIError exception: {}'.format(str(e)), file=sys.stderr)
+                else:
+                    print('Deleting {}'.format(page.title()))
+                    try:
+                        page.delete(
+                                reason='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
+                                    user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                                    datetime=self._pending_commits[commit][1],
+                                    message=self._pending_commits[commit][2]),
+                                prompt=False)
+                    except pwb.data.api.APIError as e:
+                        print('APIError exception: {}'.format(str(e)), file=sys.stderr)
+            # When all files in a commit have been processed, remove it from the pending list.
+            del self._pending_commits[commit]
 
     def sync(self):
         w2ph_synced_files = self._wiki2phab()
         self._pull()
-        # If no files have been changed in Phabricator, self._pending_files is set to [''] (list
-        # with a single element, which itself is an empty string). This is _not_ an empty list.
-        ph2w_pending_files = list(filter(None, self._pending_files))
-        # Determine which pages need to be updated on Wikipedia. To be on the safe side, if during
-        # one sync operation a page is changed both on Wikipedia and on Phabricator, the Wikipedia
-        # version wins. We do this by simply substracting the list of files that were updated on
-        # Wikipedia from the list of files updated on Phabricator (converting to a set() first).
-        # We also remove the list of files to ignore, e.g. .arcconfig, .arclint, etc.
-        ph2w_files_tosync = set(ph2w_pending_files) - set(w2ph_synced_files) - set(self.ignores)
-        if ph2w_files_tosync:
-            print('Syncing to Wikipedia: {}'.format(ph2w_files_tosync))
-            self._phab2wiki(ph2w_files_tosync)
-            self._pending_files = []
+        if self._pending_commits:
+            self._phab2wiki(w2ph_synced_files)
 
 
 def init_repos(config):
