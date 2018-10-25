@@ -263,7 +263,7 @@ def init_repos(config):
     for repo in config['repos']:
         file_regex = re.compile(
                 repo['file_regex'],
-                re.I if repo['regex_case'] else 0)
+                re.I if repo['regex_nocase'] else 0)
         repo_path = os.path.join(config['repositories_root'], repo['name'])
         git_repo = git.Repo(repo_path)
         site = pwb.Site(

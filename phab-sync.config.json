@@ -15,7 +15,7 @@
       },
       "namespace": "Module",
       "file_regex": ".*",
-      "regex_case": false,
+      "regex_nocase": false,
       "ignore_list": [],
       "force_extension": "lua",
       "log_page": "Потребител:JSS 9/Дневник"
@@ -28,7 +28,7 @@
       },
       "namespace": "MediaWiki",
       "file_regex": "^Spam",
-      "regex_case": false,
+      "regex_nocase": false,
       "ignore_list": [],
       "force_extension": null,
       "log_page": "Потребител:JSS 9/Дневник"
@@ -41,7 +41,7 @@
       },
       "namespace": "MediaWiki",
       "file_regex": "^Title",
-      "regex_case": false,
+      "regex_nocase": false,
       "ignore_list": [],
       "force_extension": null,
       "log_page": "Потребител:JSS 9/Дневник"
@@ -54,7 +54,7 @@
       },
       "namespace": "MediaWiki",
       "file_regex": "(^gadgets?-|\\.(css|js)\\b)",
-      "regex_case": true,
+      "regex_nocase": true,
       "ignore_list": [],
       "force_extension": null,
       "log_page": "Потребител:JSS 9/Дневник"
