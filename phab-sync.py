@@ -85,22 +85,46 @@ class PhabRepo:
         self.namespace = namespace
         self.title_regex = title_regex
         self.force_ext = force_ext
+        if force_ext:
+            self.re_force_ext = re.compile(r'\.' + force_ext + '$')
         self.ignores = ignores
         self._pending_commits = {}
 
-    def _allpages(self):
-        return self.site.allpages(namespace=self.namespace)
+    def _pagelist(self):
+        return [_ for _ in self.site.allpages(namespace=self.namespace)
+                if self.title_regex.search(_.title(with_ns=False))]
 
     def _last_changed(self):
         return dt.utcfromtimestamp(self.repo.commit('master').authored_date) + td(seconds=1)
 
-    def _revlist(self):
+    def _pending_revs(self, resync):
         revs = []
-        for page in self._allpages():
-            page_name = page.title(with_ns=False)
-            if self.title_regex.search(page_name):
-                for rev in page.revisions(endtime=self._last_changed(), content=True):
-                    revs.append((page_name, rev))
+        for page in self._pagelist():
+            pending_revs = page.revisions(endtime=self._last_changed(), content=True)
+            revs += [(page.title(with_ns=False), _, 'edit') for _ in pending_revs]
+            if resync:
+                # Full re-sync requested, so get the latest revision of _all_ pages in the repo.
+                last_rev = page.latest_revision
+                revs.append((page.title(with_ns=False), {
+                    'user': 'syncbot',
+                    'comment': 'forced resync from wiki',
+                    'text': last_rev['text'],
+                    'timestamp': dt.utcnow(),
+                    }, 'resync'))
+        # We need to also check for deleted pages that we keep track of.
+        repo_files = [_.path for _ in self.repo.tree().traverse() if _.type != 'tree']
+        page_files = set(repo_files) - set(self.ignores)
+        repo_pages = [self.re_force_ext('', _.replace('.d/', '/')) for _ in page_files]
+        existing_pages = [_.title(with_ns=False) for _ in self._pagelist()]
+        deleted_pages = set(repo_pages) - set(existing_pages)
+        for page_name in deleted_pages:
+            for event in self.site.logevents(page=self.namespace + ':' + page_name):
+                if event.type() in ['delete', 'move']:
+                    revs.append((page_name, {
+                        'user': event.user(),
+                        'comment': event.comment(),
+                        'timestamp': event.timestamp(),
+                        }, event.type()))
         revs.sort(key=lambda rev: rev[1]['timestamp'])
         return revs
 
@@ -120,12 +144,15 @@ class PhabRepo:
                     commit.parents[0], commit
                     ).split('\n')
 
-    def _wiki2phab(self):
-        revs = self._revlist()
+    def _wiki2phab(self, resync):
+        revs = self._pending_revs(resync)
         synced_files = []
         for rev in revs:
+            # Ignore our sync edits in the wiki.
             if rev[1]['user'] == self.site.username():
                 continue
+            # Iliev is the only user to have a username on Phabricator that's not the same as the
+            # MediaWiki username, so let Phabricator perform the committer matching by email.
             elif rev[1]['user'] == 'Iliev':
                 user_mail = 'luchesar.iliev@gmail.com'
             else:
@@ -142,13 +169,24 @@ class PhabRepo:
             if self.force_ext and '.d/' not in file_name:
                 file_name = file_name + '.' + self.force_ext
             file_path = os.path.join(self.repo.working_dir, file_name)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             # To avoid conflicts as much as possible, perform git pull right before we apply the
             # change and commit it.
             self._pull()
-            with open(file_path, 'w') as f:
-                f.write(rev[1]['text'] + '\n')
-            self.repo.index.add([file_path])
+            if rev[2] in ['edit', 'resync']:
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                if rev[2] == 'resync' and os.path.exists(file_path):
+                    with open(file_path, 'r') as f:
+                        if rev[1]['text'] == f.read().rstrip('\n'):
+                            # The on-wiki and Phabricator versions are the same. No need to resync.
+                            continue
+                with open(file_path, 'w') as f:
+                    f.write(rev[1]['text'] + '\n')
+                self.repo.index.add([file_path])
+            elif rev[2] in ['delete', 'move']:
+                self.repo.index.remove([file_path], working_tree=True)
+            else:
+                print('Error: Unknown revision type: "{}"'.format(rev[2]))
+                continue
             author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             print('Syncing to Phabricator: {}'.format(file_name))
@@ -179,15 +217,16 @@ class PhabRepo:
                 # If we've configured a file extension for syntax highlighting, remove it, but only
                 # for files in the root of the namespace/repo (the rest will likely be 'Page/doc').
                 if self.force_ext and '/' not in page_name:
-                    page_name = page_name.replace('.' + self.force_ext, '')
+                    page_name = self.re_force_ext.sub('', page_name)
                 page = pwb.Page(self.site, page_name)
+                committer = re.sub(r'\s<>$', '', commit.committer.name)
                 if file_name in synced_from_wiki:
                     # This page has been updated on the wiki in this sync run. To be on the safe
                     # side, we'll discard the possibly conflicting changes from Phabricator.
                     print('Ignoring possibly conflicting changes in {}'.format(file_name))
                     self.log_page.log(
                             log_type='conflict',
-                            user=commit.committer.name.rstrip(' <>'),
+                            user=committer,
                             repo_name=self.name,
                             commit_sha=commit.hexsha,
                             datetime=commit.committed_datetime,
@@ -209,7 +248,7 @@ class PhabRepo:
                     try:
                         page.save(
                                 summary='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
-                                    user=commit.committer.name.rstrip(' <>'),
+                                    user=committer,
                                     datetime=commit.committed_datetime,
                                     message=commit.message.replace('\n', '')),
                                 botflag=True, quiet=True)
@@ -218,7 +257,7 @@ class PhabRepo:
                     else:
                         self.log_page.log(
                                 log_type='edit',
-                                user=commit.committer.name.rstrip(' <>'),
+                                user=committer,
                                 repo_name=self.name,
                                 commit_sha=commit.hexsha,
                                 datetime=commit.committed_datetime,
@@ -231,7 +270,7 @@ class PhabRepo:
                     try:
                         page.delete(
                                 reason='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
-                                    user=commit.committer.name.rstrip(' <>'),
+                                    user=committer,
                                     datetime=commit.committed_datetime,
                                     message=commit.message.replace('\n', '')),
                                 prompt=False)
@@ -240,7 +279,7 @@ class PhabRepo:
                     else:
                         self.log_page.log(
                                 log_type='delete',
-                                user=commit.committer.name.rstrip(' <>'),
+                                user=committer,
                                 repo_name=self.name,
                                 commit_sha=commit.hexsha,
                                 datetime=commit.committed_datetime,
@@ -249,8 +288,8 @@ class PhabRepo:
             # When all files in a commit have been processed, remove it from the pending list.
             del self._pending_commits[commit]
 
-    def sync(self):
-        w2ph_synced_files = self._wiki2phab()
+    def sync(self, resync=False):
+        w2ph_synced_files = self._wiki2phab(resync)
         self._pull()
         if self._pending_commits:
             self._phab2wiki(w2ph_synced_files)
@@ -299,6 +338,11 @@ def main(argv):
     sig_handler = SignalHandler()
     config = read_config()
     repos = init_repos(config)
+    if argv:
+        if argv.pop() in ['resync', 'force']:
+            for repo in repos:
+                print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
+                repo.sync(resync=True)
     while True:
         for repo in repos:
             print('Syncing repo "{}"...'.format(repo.repo.git_dir))
