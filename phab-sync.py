@@ -153,7 +153,7 @@ class PhabRepo:
             # change and commit it.
             self._pull()
             with open(file_path, 'w') as f:
-                f.write(rev[1]['text'])
+                f.write(rev[1]['text'] + '\n')
             self.repo.index.add([file_path])
             author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
@@ -206,7 +206,7 @@ class PhabRepo:
                         print('WARNING: Unexpected KeyError exception in _phab2wiki().')
                 if not file_removed:
                     file_contents_at_commit = b''.join(file_git_blob.data_stream[3].readlines())
-                    page.text = file_contents_at_commit.decode('utf-8')
+                    page.text = file_contents_at_commit.decode('utf-8').rstrip('\n')
                     print('Saving {}'.format(page.title()))
                     try:
                         page.save(
