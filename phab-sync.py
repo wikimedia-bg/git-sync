@@ -168,6 +168,10 @@ class PhabRepo:
         # delete the pending commits from the latter once they are processed.
         commit_list = list(self._pending_commits)
         for commit in commit_list:
+            if re.search(r'\bDO\s+NOT\s+(MERGE|SYNC)\b', commit.message):
+                print('Ignoring commit {} because of DO NOT MERGE/SYNC.'.format(commit.hexsha))
+                del self._pending_commits[commit]
+                continue
             for file_name in self._pending_commits[commit]:
                 # We cannot have both a file and a directory with the same name, so where we have
                 # 'Page' and 'Page/doc', the latter was converted to 'Page.d/doc'.
