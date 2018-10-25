@@ -67,7 +67,7 @@ class LogPage(pwb.Page):
                     repo=repo_name,
                     sha=commit_sha,
                     datetime=datetime,
-                    message=message))
+                    message=message.replace('\n', '')))
         try:
             self.save(summary='Регистриране на ново действие в дневника.',
                       botflag=True, quiet=True)
@@ -115,16 +115,10 @@ class PhabRepo:
         pull_commits = reversed([_ for _ in pull_commits_newest_first])
         # This requires Python 3.7+ to keep the insertion order of the dictionary.
         for commit in pull_commits:
-            self._pending_commits[commit] = (
-                    self.repo.commit(commit).committer,
-                    self.repo.commit(commit).committed_datetime,
-                    self.repo.commit(commit).message.replace('\n', ''),
-                    self.repo.git.diff_tree(
-                            '--no-commit-id',
-                            '--name-only',
-                            '-r',
-                            commit.parents[0], commit).split('\n')
-                    )
+            self._pending_commits[commit] = self.repo.git.diff_tree(
+                    '--no-commit-id', '--name-only', '-r',
+                    commit.parents[0], commit
+                    ).split('\n')
 
     def _wiki2phab(self):
         revs = self._revlist()
@@ -174,7 +168,7 @@ class PhabRepo:
         # delete the pending commits from the latter once they are processed.
         commit_list = list(self._pending_commits)
         for commit in commit_list:
-            for file_name in self._pending_commits[commit][3]:
+            for file_name in self._pending_commits[commit]:
                 # We cannot have both a file and a directory with the same name, so where we have
                 # 'Page' and 'Page/doc', the latter was converted to 'Page.d/doc'.
                 page_name = self.namespace + ':' + file_name.replace('.d/', '/')
@@ -189,11 +183,11 @@ class PhabRepo:
                     print('Ignoring possibly conflicting changes in {}'.format(file_name))
                     self.log_page.log(
                             log_type='conflict',
-                            user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                            user=commit.committer.name.rstrip(' <>'),
                             repo_name=self.name,
                             commit_sha=commit.hexsha,
-                            datetime=self._pending_commits[commit][1],
-                            message=self._pending_commits[commit][2],
+                            datetime=commit.committed_datetime,
+                            message=commit.message,
                             target_page=page.title())
                     continue
                 file_removed = False
@@ -211,20 +205,20 @@ class PhabRepo:
                     try:
                         page.save(
                                 summary='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
-                                    user=self._pending_commits[commit][0].name.rstrip(' <>'),
-                                    datetime=self._pending_commits[commit][1],
-                                    message=self._pending_commits[commit][2]),
+                                    user=commit.committer.name.rstrip(' <>'),
+                                    datetime=commit.committed_datetime,
+                                    message=commit.message.replace('\n', '')),
                                 botflag=True, quiet=True)
                     except pwb.data.api.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
                     else:
                         self.log_page.log(
                                 log_type='edit',
-                                user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                                user=commit.committer.name.rstrip(' <>'),
                                 repo_name=self.name,
                                 commit_sha=commit.hexsha,
-                                datetime=self._pending_commits[commit][1],
-                                message=self._pending_commits[commit][2],
+                                datetime=commit.committed_datetime,
+                                message=commit.message,
                                 target_page=page.title(),
                                 oldid=page.latest_revision_id)
                 # if file_removed is True.
@@ -233,20 +227,20 @@ class PhabRepo:
                     try:
                         page.delete(
                                 reason='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
-                                    user=self._pending_commits[commit][0].name.rstrip(' <>'),
-                                    datetime=self._pending_commits[commit][1],
-                                    message=self._pending_commits[commit][2]),
+                                    user=commit.committer.name.rstrip(' <>'),
+                                    datetime=commit.committed_datetime,
+                                    message=commit.message.replace('\n', '')),
                                 prompt=False)
                     except pwb.data.api.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
                     else:
                         self.log_page.log(
                                 log_type='delete',
-                                user=self._pending_commits[commit][0].name.rstrip(' <>'),
+                                user=commit.committer.name.rstrip(' <>'),
                                 repo_name=self.name,
                                 commit_sha=commit.hexsha,
-                                datetime=self._pending_commits[commit][1],
-                                message=self._pending_commits[commit][2],
+                                datetime=commit.committed_datetime,
+                                message=commit.message,
                                 target_page=page.title())
             # When all files in a commit have been processed, remove it from the pending list.
             del self._pending_commits[commit]
