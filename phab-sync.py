@@ -125,6 +125,8 @@ class PhabRepo:
                         'comment': event.comment(),
                         'timestamp': event.timestamp(),
                         }, event.type()))
+                    # We need only the first (chronologically last) delete or move event.
+                    break
         revs.sort(key=lambda rev: rev[1]['timestamp'])
         return revs
 
