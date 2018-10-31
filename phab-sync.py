@@ -114,7 +114,10 @@ class PhabRepo:
         # We need to also check for deleted pages that we keep track of.
         repo_files = [_.path for _ in self.repo.tree().traverse() if _.type != 'tree']
         page_files = set(repo_files) - set(self.ignores)
-        repo_pages = [self.re_force_ext('', _.replace('.d/', '/')) for _ in page_files]
+        if self.force_ext:
+            repo_pages = [self.re_force_ext.sub('', _.replace('.d/', '/')) for _ in page_files]
+        else:
+            repo_pages = [_.replace('.d/', '/') for _ in page_files]
         existing_pages = [_.title(with_ns=False) for _ in self._pagelist()]
         deleted_pages = set(repo_pages) - set(existing_pages)
         for page_name in deleted_pages:
@@ -196,8 +199,8 @@ class PhabRepo:
                     comment,
                     author=author,
                     committer=committer,
-                    author_date=str(rev[1]['timestamp'])[:-1],
-                    commit_date=str(rev[1]['timestamp'])[:-1])
+                    author_date=rev[1]['timestamp'].isoformat(timespec='seconds'),
+                    commit_date=rev[1]['timestamp'].isoformat(timespec='seconds'))
             # Push after each commit. It's inefficient, but should minimize possible conflicts.
             self.repo.git.push()
             synced_files.append(file_name)

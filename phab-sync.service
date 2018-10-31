@@ -5,7 +5,7 @@ Description=Phabricator Repos Synchronization
 Environment=PYTHONPATH=/opt/pywikibot/core:/opt/pywikibot/core/externals:/opt/pywikibot/core/scripts:${PYTHONPATH}
 Environment='PYWIKIBOT2_DIR=/home/kerb/.pywikibot/PSS 9'
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/kerb/bin/phab-sync.py
+ExecStart=/home/kerb/bin/phab-sync.py resync
 TimeoutStopSec=300
 KillMode=process
 RestartSec=10
