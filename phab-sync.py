@@ -55,6 +55,7 @@ class PhabRepo:
         if force_ext:
             self.re_force_ext = re.compile(r'\.' + force_ext + '$')
         self.ignores = ignores
+        self._need_resync = False
         self._pending_commits = {}
 
     def _create_summary(self, committer, repo_name, commit_sha, message):
@@ -74,12 +75,12 @@ class PhabRepo:
     def _last_changed(self):
         return dt.utcfromtimestamp(self.repo.commit('master').authored_date) + td(seconds=1)
 
-    def _pending_revs(self, resync):
+    def _pending_revs(self):
         revs = []
         for page in self._pagelist():
             pending_revs = page.revisions(endtime=self._last_changed(), content=True)
             revs += [(page.title(with_ns=False), _, 'edit') for _ in pending_revs]
-            if resync:
+            if self._need_resync:
                 # Full re-sync requested, so get the latest revision of _all_ pages in the repo.
                 last_rev = page.latest_revision
                 revs.append((page.title(with_ns=False), {
@@ -88,6 +89,8 @@ class PhabRepo:
                     'text': last_rev['text'],
                     'timestamp': dt.utcnow(),
                     }, 'resync'))
+        # If a resync has been requested, it's done.
+        self._need_resync = False
         # We need to also check for deleted pages that we keep track of.
         repo_files = [_.path for _ in self.repo.tree().traverse() if _.type != 'tree']
         page_files = set(repo_files) - set(self.ignores)
@@ -126,8 +129,8 @@ class PhabRepo:
                     commit.parents[0], commit
                     ).split('\n')
 
-    def _wiki2phab(self, resync):
-        revs = self._pending_revs(resync)
+    def _wiki2phab(self):
+        revs = self._pending_revs()
         synced_files = []
         for rev in revs:
             # Ignore our sync edits in the wiki.
@@ -207,6 +210,8 @@ class PhabRepo:
                     # This page has been updated on the wiki in this sync run. To be on the safe
                     # side, we'll discard the possibly conflicting changes from Phabricator.
                     print('Ignoring possibly conflicting changes in {}'.format(file_name))
+                    # Sometimes this might lead to out-of-sync situations, so schedule a resync.
+                    self._need_resync = True
                     continue
                 file_removed = False
                 try:
@@ -234,7 +239,9 @@ class PhabRepo:
             del self._pending_commits[commit]
 
     def sync(self, resync=False):
-        w2ph_synced_files = self._wiki2phab(resync)
+        if resync:
+            self._need_resync = True
+        w2ph_synced_files = self._wiki2phab()
         self._pull()
         if self._pending_commits:
             self._phab2wiki(w2ph_synced_files)
