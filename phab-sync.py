@@ -43,45 +43,12 @@ class SignalHandler:
             self._is_sleeping = False
 
 
-class LogPage(pwb.Page):
-
-    def __init__(self, source, title):
-        super().__init__(source, title)
-
-    def log(self, log_type, user, repo_name, commit_sha,
-            datetime, message, target_page, oldid=None):
-        page_link = {
-                'edit': '| {{{{diff|prev|{oldid}|{page}}}}} |',
-                'delete': '| {{{{del|{page}}}}} |',
-                'conflict': '| [[{page}]] |'
-                }
-        self.text = self.text.replace(
-                '{{/Header}}',
-                '{{{{/Header}}}}\n'
-                '| {{{{/{log_type}}}}} |'.format(log_type=log_type)
-                + page_link[log_type].format(oldid=oldid, page=target_page) +
-                '| {{{{потребител|{user}}}}} |'
-                '| {{{{ph|source/{repo}/commit/{sha}|{datetime}}}}} |'
-                '| {message}\n|-'.format(
-                    user=user,
-                    repo=repo_name,
-                    sha=commit_sha,
-                    datetime=datetime,
-                    message=message.replace('\n', '')))
-        try:
-            self.save(summary='Регистриране на ново действие в дневника.',
-                      botflag=True, quiet=True)
-        except pwb.data.api.APIError as e:
-            print('APIError exception: {}'.format(str(e)), file=sys.stderr)
-
-
 class PhabRepo:
 
-    def __init__(self, name, repo, site, log_page, namespace, title_regex, force_ext, ignores):
+    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores):
         self.name = name
         self.repo = repo
         self.site = site
-        self.log_page = log_page
         self.namespace = namespace
         self.title_regex = title_regex
         self.force_ext = force_ext
@@ -89,6 +56,16 @@ class PhabRepo:
             self.re_force_ext = re.compile(r'\.' + force_ext + '$')
         self.ignores = ignores
         self._pending_commits = {}
+
+    def _create_summary(self, committer, repo_name, commit_sha, message):
+        base_url = 'https://phabricator.wikimedia.bg/source'
+        message = message.replace('\n', '')
+        return '[[User:{user}|{user}]] | {base_url}/{repo}/commit/{sha} | {message}'.format(
+                user=committer,
+                base_url=base_url,
+                repo=repo_name,
+                sha=commit_sha,
+                message=message[:400] + (message[400:] and '..'))
 
     def _pagelist(self):
         return [_ for _ in self.site.allpages(namespace=self.namespace)
@@ -225,18 +202,11 @@ class PhabRepo:
                     page_name = self.re_force_ext.sub('', page_name)
                 page = pwb.Page(self.site, page_name)
                 committer = re.sub(r'\s<>$', '', commit.committer.name)
+                summary = self._create_summary(committer, self.name, commit.hexsha, commit.message)
                 if file_name in synced_from_wiki:
                     # This page has been updated on the wiki in this sync run. To be on the safe
                     # side, we'll discard the possibly conflicting changes from Phabricator.
                     print('Ignoring possibly conflicting changes in {}'.format(file_name))
-                    self.log_page.log(
-                            log_type='conflict',
-                            user=committer,
-                            repo_name=self.name,
-                            commit_sha=commit.hexsha,
-                            datetime=commit.committed_datetime,
-                            message=commit.message,
-                            target_page=page.title())
                     continue
                 file_removed = False
                 try:
@@ -251,45 +221,15 @@ class PhabRepo:
                     page.text = file_contents_at_commit.decode('utf-8').rstrip('\n')
                     print('Saving {}'.format(page.title()))
                     try:
-                        page.save(
-                                summary='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
-                                    user=committer,
-                                    datetime=commit.committed_datetime,
-                                    message=commit.message.replace('\n', '')),
-                                botflag=True, quiet=True)
+                        page.save(summary=summary, botflag=True, quiet=True)
                     except pwb.data.api.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
-                    else:
-                        self.log_page.log(
-                                log_type='edit',
-                                user=committer,
-                                repo_name=self.name,
-                                commit_sha=commit.hexsha,
-                                datetime=commit.committed_datetime,
-                                message=commit.message,
-                                target_page=page.title(),
-                                oldid=page.latest_revision_id)
-                # if file_removed is True.
                 else:
                     print('Deleting {}'.format(page.title()))
                     try:
-                        page.delete(
-                                reason='[[User:{user}|{user}]] @ {datetime}: {message}'.format(
-                                    user=committer,
-                                    datetime=commit.committed_datetime,
-                                    message=commit.message.replace('\n', '')),
-                                prompt=False)
+                        page.delete(reason=summary, prompt=False)
                     except pwb.data.api.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
-                    else:
-                        self.log_page.log(
-                                log_type='delete',
-                                user=committer,
-                                repo_name=self.name,
-                                commit_sha=commit.hexsha,
-                                datetime=commit.committed_datetime,
-                                message=commit.message,
-                                target_page=page.title())
             # When all files in a commit have been processed, remove it from the pending list.
             del self._pending_commits[commit]
 
@@ -313,8 +253,7 @@ def init_repos(config):
                 fam=repo['project']['family'],
                 user=config['mediawiki_username'],
                 sysop=config['mediawiki_username'])
-        log_page = LogPage(site, repo['log_page'])
-        repos.append(PhabRepo(repo['name'], git_repo, site, log_page,
+        repos.append(PhabRepo(repo['name'], git_repo, site,
                               repo['namespace'], file_regex, repo['force_extension'],
                               repo['ignore_list'] + config['global_ignore_list']))
     return repos
