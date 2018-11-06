@@ -176,8 +176,8 @@ class PhabRepo:
                     comment,
                     author=author,
                     committer=committer,
-                    author_date=rev[1]['timestamp'].isoformat(timespec='seconds'),
-                    commit_date=rev[1]['timestamp'].isoformat(timespec='seconds'))
+                    author_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'),
+                    commit_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'))
             # Push after each commit. It's inefficient, but should minimize possible conflicts.
             self.repo.git.push()
             synced_files.append(file_name)
