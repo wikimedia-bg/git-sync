@@ -73,7 +73,7 @@ class PhabRepo:
                 if self.title_regex.search(_.title(with_ns=False))]
 
     def _last_changed(self):
-        return dt.utcfromtimestamp(self.repo.commit('master').authored_date) + td(seconds=1)
+        return dt.utcfromtimestamp(self.repo.commit('master').committed_date) + td(seconds=1)
 
     def _pending_revs(self):
         revs = []
