@@ -60,7 +60,7 @@ class PhabRepo:
 
     def _create_summary(self, committer, repo_name, commit_sha, message):
         base_url = 'https://phabricator.wikimedia.bg/source'
-        message = message.replace('\n', '')
+        message = message.replace('\n', ' // ')
         return '[[User:{user}|{user}]] | {base_url}/{repo}/commit/{sha} | {message}'.format(
                 user=committer,
                 base_url=base_url,
