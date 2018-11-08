@@ -289,11 +289,11 @@ def main(argv):
     sig_handler = SignalHandler()
     config = read_config()
     repos = init_repos(config)
-    if argv:
-        if argv.pop() in ['resync', 'force']:
-            for repo in repos:
-                print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
-                repo.sync(resync=True)
+    #if argv:
+    #    if argv.pop() in ['resync', 'force']:
+    #        for repo in repos:
+    #            print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
+    #            repo.sync(resync=True)
     while True:
         for repo in repos:
             print('Syncing repo "{}"...'.format(repo.repo.git_dir))
