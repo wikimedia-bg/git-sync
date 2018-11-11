@@ -1,6 +1,6 @@
 {
   "daemon_sleep_seconds": 60,
-  "mediawiki_username": "PSS 9",
+  "mediawiki_username": "JSS 9",
   "repositories_root": "/home/kerb/.local/share/phab-sync/repos",
   "global_ignore_list": [
     ".arcconfig",
