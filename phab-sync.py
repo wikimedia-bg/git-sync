@@ -298,6 +298,8 @@ def main(argv):
         for repo in repos:
             print('Syncing repo "{}"...'.format(repo.repo.git_dir))
             repo.sync()
+            # Sleep for a second between repos to catch requests to shutdown faster.
+            sig_handler.sleep(1)
         print('Sleeping...')
         sig_handler.sleep(config['daemon_sleep_seconds'])
 
