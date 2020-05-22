@@ -258,8 +258,7 @@ def init_repos(config):
         site = pwb.Site(
                 code=repo['project']['code'],
                 fam=repo['project']['family'],
-                user=config['mediawiki_username'],
-                sysop=config['mediawiki_username'])
+                user=config['mediawiki_username'])
         repos.append(PhabRepo(repo['name'], git_repo, site,
                               repo['namespace'], file_regex, repo['force_extension'],
                               repo['ignore_list'] + config['global_ignore_list']))
