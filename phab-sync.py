@@ -43,6 +43,45 @@ class SignalHandler:
             self._is_sleeping = False
 
 
+class GitSync:
+
+    def __init__(self, name, config_file):
+        self.name = name
+        self.config_file = config_file
+        self.config = {}
+        self.repos = []
+
+    def init_repos(self):
+        for repo in self.config['repos']:
+            file_regex = re.compile(
+                    repo['file_regex'],
+                    re.I if repo['regex_nocase'] else 0)
+            repo_path = os.path.join(self.config['repositories_root'], repo['name'])
+            git_repo = git.Repo(repo_path)
+            site = pwb.Site(
+                    code=repo['project']['code'],
+                    fam=repo['project']['family'],
+                    user=self.config['mediawiki_username'])
+            self.repos.append(PhabRepo(repo['name'], git_repo, site,
+                              repo['namespace'], file_regex, repo['force_extension'],
+                              repo['ignore_list'] + self.config['global_ignore_list']))
+
+    def read_config(self):
+        config_files = [
+                self.config_file,
+                os.path.join(Path.home(), '.config', self.name, self.config_file),
+                os.path.join('/etc', self.name, self.config_file),
+                ]
+        for config_file in config_files:
+            if os.path.exists(config_file):
+                with open(config_file, 'rb') as f:
+                    self.config = json.load(f)
+                break
+        if not self.config:
+            print('Error: Configuration file not found or empty.', file=sys.stderr)
+            sys.exit(1)
+
+
 class PhabRepo:
 
     def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores):
@@ -247,63 +286,31 @@ class PhabRepo:
             self._phab2wiki(w2ph_synced_files)
 
 
-def init_repos(config):
-    repos = []
-    for repo in config['repos']:
-        file_regex = re.compile(
-                repo['file_regex'],
-                re.I if repo['regex_nocase'] else 0)
-        repo_path = os.path.join(config['repositories_root'], repo['name'])
-        git_repo = git.Repo(repo_path)
-        site = pwb.Site(
-                code=repo['project']['code'],
-                fam=repo['project']['family'],
-                user=config['mediawiki_username'])
-        repos.append(PhabRepo(repo['name'], git_repo, site,
-                              repo['namespace'], file_regex, repo['force_extension'],
-                              repo['ignore_list'] + config['global_ignore_list']))
-    return repos
-
-
-def read_config():
-    config_file_name = 'phab-sync.config.json'
-    config_files = [
-            config_file_name,
-            os.path.join(Path.home(), '.config/phab-sync', config_file_name),
-            os.path.join('/etc/phab-sync', config_file_name),
-            ]
-    for config_file in config_files:
-        if os.path.exists(config_file):
-            with open(config_file, 'rb') as f:
-                config = json.load(f)
-            break
-    try:
-        return(config)
-    except UnboundLocalError:
-        print('Error: Configuration file not found.', file=sys.stderr)
-        sys.exit(1)
-
-
 def main(argv):
     sig_handler = SignalHandler()
-    config = read_config()
-    repos = init_repos(config)
-    #if argv:
-    #    if argv.pop() in ['resync', 'force']:
-    #        for repo in repos:
-    #            print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
-    #            repo.sync(resync=True)
+    git_sync = GitSync(name='git-sync', config_file='config.json')
+    git_sync.read_config()
+    git_sync.init_repos()
+    '''
+    Disabled temporarily.
+
+    if argv:
+        if argv.pop() in ['resync', 'force']:
+            for repo in repos:
+                print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
+                repo.sync(resync=True)
+    '''
     while True:
-        for repo in repos:
+        for repo in git_sync.repos:
             print('Syncing repo "{}"...'.format(repo.repo.git_dir))
             repo.sync()
             # Sleep for a second between repos to catch requests to shutdown faster.
             sig_handler.sleep(1)
         print('Sleeping...')
-        sig_handler.sleep(config['daemon_sleep_seconds'])
+        sig_handler.sleep(git_sync.config['daemon_sleep_seconds'])
 
 
 if __name__ == '__main__':
     main(sys.argv[1:])
 
-# vim: set ts=4 sts=4 sw=4 et:
+# vim: set ts=4 sts=4 sw=4 tw=100 et:
