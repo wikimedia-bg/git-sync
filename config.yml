@@ -7,7 +7,7 @@ mediawiki_username: JSS 9
 repositories_root: /home/jss9/.local/share/git-sync/repos
 
 repos:
-  - name: lua
+  - name: wikipedia-lua
     project:
       code: bg
       family: wikipedia
@@ -16,7 +16,7 @@ repos:
     regex_nocase: false
     ignore_list: []
     force_extension: lua
-  - name: spam
+  - name: wikipedia-spam
     project:
       code: bg
       family: wikipedia
@@ -25,7 +25,7 @@ repos:
     regex_nocase: false
     ignore_list: []
     force_extension: null
-  - name: tbl
+  - name: wikipedia-tbl
     project:
       code: bg
       family: wikipedia
@@ -34,7 +34,7 @@ repos:
     regex_nocase: false
     ignore_list: []
     force_extension: null
-  - name: ui
+  - name: wikipedia-ui
     project:
       code: bg
       family: wikipedia
