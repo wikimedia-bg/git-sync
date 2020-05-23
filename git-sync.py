@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import json
 import os
 import os.path
 import re
@@ -14,6 +13,7 @@ from pathlib import Path
 
 import git
 import pywikibot as pwb
+import yaml
 
 
 class SignalHandler:
@@ -45,9 +45,9 @@ class SignalHandler:
 
 class GitSync:
 
-    def __init__(self, name, config_file):
-        self.name = name
-        self.config_file = config_file
+    def __init__(self):
+        self._base_path = Path(__file__).parent
+        self._config_file = self._base_path / 'config.yml'
         self.config = {}
         self.repos = []
 
@@ -67,16 +67,7 @@ class GitSync:
                               repo['ignore_list'] + self.config['global_ignore_list']))
 
     def read_config(self):
-        config_files = [
-                self.config_file,
-                os.path.join(Path.home(), '.config', self.name, self.config_file),
-                os.path.join('/etc', self.name, self.config_file),
-                ]
-        for config_file in config_files:
-            if os.path.exists(config_file):
-                with open(config_file, 'rb') as f:
-                    self.config = json.load(f)
-                break
+        self.config = yaml.load(self._config_file.read_text())
         if not self.config:
             print('Error: Configuration file not found or empty.', file=sys.stderr)
             sys.exit(1)

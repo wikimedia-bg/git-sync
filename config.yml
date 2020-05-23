@@ -1,0 +1,45 @@
+---
+daemon_sleep_seconds: 60
+global_ignore_list:
+  - .arcconfig
+  - .arclint
+mediawiki_username: JSS 9
+repositories_root: /home/jss9/.local/share/git-sync/repos
+
+repos:
+  - name: lua
+    project:
+      code: bg
+      family: wikipedia
+    namespace: Module
+    file_regex: .*
+    regex_nocase: false
+    ignore_list: []
+    force_extension: lua
+  - name: spam
+    project:
+      code: bg
+      family: wikipedia
+    namespace: MediaWiki
+    file_regex: ^Spam
+    regex_nocase: false
+    ignore_list: []
+    force_extension: null
+  - name: tbl
+    project:
+      code: bg
+      family: wikipedia
+    namespace: MediaWiki
+    file_regex: ^Title
+    regex_nocase: false
+    ignore_list: []
+    force_extension: null
+  - name: ui
+    project:
+      code: bg
+      family: wikipedia
+    namespace: MediaWiki
+    file_regex: (^gadgets?-|\.(css|js)\b)
+    regex_nocase: true
+    ignore_list: []
+    force_extension: null
