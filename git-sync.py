@@ -89,7 +89,7 @@ class GitRepo:
         self._pending_commits = {}
 
     def _create_summary(self, committer, repo_name, commit_sha, message):
-        base_url = 'https://phabricator.wikimedia.bg/source'
+        base_url = 'https://github.com/wikimedia-bg'
         message = message.replace('\n', ' ')
         return '[[User:{user}|{user}]] | {base_url}/{repo}/commit/{sha} | {message}'.format(
                 user=committer,
