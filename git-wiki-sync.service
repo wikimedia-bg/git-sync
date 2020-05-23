@@ -1,11 +1,12 @@
 [Unit]
-Description=Phabricator Repos Synchronization
+Description=Git Wiki Synchronization
 
 [Service]
+User=jss9
+Group=jss9
 Environment=PYTHONPATH=/opt/pywikibot/core:/opt/pywikibot/core/externals:/opt/pywikibot/core/scripts:${PYTHONPATH}
-Environment='PYWIKIBOT2_DIR=/home/kerb/.pywikibot/JSS 9'
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/kerb/bin/phab-sync.py resync
+ExecStart=/home/jss9/.local/bin/git-sync/git-sync.py resync
 TimeoutStopSec=300
 KillMode=process
 RestartSec=10

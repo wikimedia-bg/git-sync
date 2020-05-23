@@ -62,7 +62,7 @@ class GitSync:
                     code=repo['project']['code'],
                     fam=repo['project']['family'],
                     user=self.config['mediawiki_username'])
-            self.repos.append(PhabRepo(repo['name'], git_repo, site,
+            self.repos.append(GitRepo(repo['name'], git_repo, site,
                               repo['namespace'], file_regex, repo['force_extension'],
                               repo['ignore_list'] + self.config['global_ignore_list']))
 
@@ -82,7 +82,7 @@ class GitSync:
             sys.exit(1)
 
 
-class PhabRepo:
+class GitRepo:
 
     def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores):
         self.name = name
@@ -168,7 +168,7 @@ class PhabRepo:
                     commit.parents[0], commit
                     ).split('\n')
 
-    def _wiki2phab(self):
+    def _wiki2git(self):
         revs = self._pending_revs()
         synced_files = []
         for rev in revs:
@@ -213,7 +213,7 @@ class PhabRepo:
                 continue
             author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
-            print('Syncing to Phabricator: {}'.format(file_name))
+            print('Syncing to Git: {}'.format(file_name))
             self.repo.index.commit(
                     comment,
                     author=author,
@@ -225,7 +225,7 @@ class PhabRepo:
             synced_files.append(file_name)
         return synced_files
 
-    def _phab2wiki(self, synced_from_wiki):
+    def _git2wiki(self, synced_from_wiki):
         # Iterate over a list of the keys, instead of directly on the dictionary. This allows to
         # delete the pending commits from the latter once they are processed.
         commit_list = list(self._pending_commits)
@@ -259,7 +259,7 @@ class PhabRepo:
                     if str(e).endswith('\'{file}\' not found"'.format(file=file_name)):
                         file_removed = True
                     else:
-                        print('WARNING: Unexpected KeyError exception in _phab2wiki().')
+                        print('WARNING: Unexpected KeyError exception in _git2wiki().')
                 if not file_removed:
                     file_contents_at_commit = b''.join(file_git_blob.data_stream[3].readlines())
                     page.text = file_contents_at_commit.decode('utf-8').rstrip('\n')
@@ -280,10 +280,10 @@ class PhabRepo:
     def sync(self, resync=False):
         if resync:
             self._need_resync = True
-        w2ph_synced_files = self._wiki2phab()
+        w2g_synced_files = self._wiki2git()
         self._pull()
         if self._pending_commits:
-            self._phab2wiki(w2ph_synced_files)
+            self._git2wiki(w2g_synced_files)
 
 
 def main(argv):
