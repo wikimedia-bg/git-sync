@@ -94,20 +94,21 @@ class GitRepo:
         self._usermap = usermap
         self._usermap_email_list = usermap_email_list
 
-    def _create_summary(self, committer_name, committer_email, repo_name, commit_sha, message):
+    def _create_summary(self, author_name, author_email, repo_name, commit_sha, message):
         base_url = 'https://github.com/wikimedia-bg'
         message = message.replace('\n', ' ')
-        # Try finding the committer email in the usermap dictionary. For this we have two lists:
+        # Try finding the commit author email in the usermap dictionary. For this we have two lists:
         #   * the top-level keys, i.e. the Wikimedia usernames (list(self._usermap.keys()));
         #   * the email subkeys in the _same_ order (created in GitSync.read_config()).
         # Because the two lists have the same order, the username in index N in the first list corresponds to the email
-        # in index N in the second list. Thus, if we find the committer email in the second list at index N, we know
+        # in index N in the second list. Thus, if we find the commit author email in the second list at index N, we know
         # that the corresponding Wikimedia username will be at index N in the first list.
         try:
-            wiki_user = list(self._usermap.keys())[self._usermap_email_list.index(committer_email)]
-        # If there's no match, just mention the commmitter name in the edit summary, but don't create a user page link.
+            wiki_user = list(self._usermap.keys())[self._usermap_email_list.index(author_email)]
+        # If there's no match, just mention the commit author's name in the edit summary, but don't create a user page
+        # link.
         except ValueError:
-            wiki_user_mention = committer_name
+            wiki_user_mention = author_name
         # If there is a match, create a user page link, since this must be a valid Wikimedia user.
         else:
             wiki_user_mention = '[[User:{user}|{user}]]'.format(user=wiki_user)
@@ -268,8 +269,8 @@ class GitRepo:
                     page_name = self.re_force_ext.sub('', page_name)
                 page = pwb.Page(self.site, page_name)
                 summary = self._create_summary(
-                        commit.committer.name,
-                        commit.committer.email,
+                        commit.author.name,
+                        commit.author.email,
                         self.name,
                         commit.hexsha,
                         commit.message)
