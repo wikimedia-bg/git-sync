@@ -209,7 +209,7 @@ class GitRepo:
                 if rev[2] == 'resync' and os.path.exists(file_path):
                     with open(file_path, 'r') as f:
                         if rev[1]['text'] == f.read().rstrip('\n'):
-                            # The on-wiki and Phabricator versions are the same. No need to resync.
+                            # The on-wiki and Git versions are the same. No need to resync.
                             continue
                 with open(file_path, 'w') as f:
                     f.write(rev[1]['text'] + '\n')
@@ -253,7 +253,7 @@ class GitRepo:
                 summary = self._create_summary(committer, self.name, commit.hexsha, commit.message)
                 if file_name in synced_from_wiki:
                     # This page has been updated on the wiki in this sync run. To be on the safe
-                    # side, we'll discard the possibly conflicting changes from Phabricator.
+                    # side, we'll discard the possibly conflicting changes from the Git repo.
                     print('Ignoring possibly conflicting changes in {}'.format(file_name))
                     # Sometimes this might lead to out-of-sync situations, so schedule a resync.
                     self._need_resync = True
