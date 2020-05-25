@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import json
 import os
 import os.path
 import re
@@ -14,6 +13,7 @@ from pathlib import Path
 
 import git
 import pywikibot as pwb
+import yaml
 
 
 class SignalHandler:
@@ -43,9 +43,43 @@ class SignalHandler:
             self._is_sleeping = False
 
 
-class PhabRepo:
+class GitSync:
 
-    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores):
+    def __init__(self):
+        self._base_path = Path(__file__).parent
+        self._config_file = self._base_path / 'config.yml'
+        self.config = {}
+        self.repos = []
+        self.usermap_email_list = []
+
+    def init_repos(self):
+        for repo in self.config['repos']:
+            file_regex = re.compile(
+                    repo['file_regex'],
+                    re.I if repo['regex_nocase'] else 0)
+            repo_path = os.path.join(self.config['repositories_root'], repo['name'])
+            git_repo = git.Repo(repo_path)
+            site = pwb.Site(
+                    code=repo['project']['code'],
+                    fam=repo['project']['family'],
+                    user=self.config['mediawiki_username'])
+            self.repos.append(GitRepo(repo['name'], git_repo, site,
+                              repo['namespace'], file_regex, repo['force_extension'],
+                              repo['ignore_list'] + self.config['global_ignore_list'],
+                              self.config['usermap'], self.usermap_email_list))
+
+    def read_config(self):
+        self.config = yaml.load(self._config_file.read_text(), Loader=yaml.FullLoader)
+        if not self.config:
+            print('Error: Configuration file not found or empty.', file=sys.stderr)
+            sys.exit(1)
+        else:
+            self.usermap_email_list = [_['email'] for _ in self.config['usermap'].values()]
+
+
+class GitRepo:
+
+    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores, usermap, usermap_email_list):
         self.name = name
         self.repo = repo
         self.site = site
@@ -57,12 +91,28 @@ class PhabRepo:
         self.ignores = ignores
         self._need_resync = False
         self._pending_commits = {}
+        self._usermap = usermap
+        self._usermap_email_list = usermap_email_list
 
-    def _create_summary(self, committer, repo_name, commit_sha, message):
-        base_url = 'https://phabricator.wikimedia.bg/source'
+    def _create_summary(self, committer_name, committer_email, repo_name, commit_sha, message):
+        base_url = 'https://github.com/wikimedia-bg'
         message = message.replace('\n', ' ')
-        return '[[User:{user}|{user}]] | {base_url}/{repo}/commit/{sha} | {message}'.format(
-                user=committer,
+        # Try finding the committer email in the usermap dictionary. For this we have two lists:
+        #   * the top-level keys, i.e. the Wikimedia usernames (list(self._usermap.keys()));
+        #   * the email subkeys in the _same_ order (created in GitSync.read_config()).
+        # Because the two lists have the same order, the username in index N in the first list corresponds to the email
+        # in index N in the second list. Thus, if we find the committer email in the second list at index N, we know
+        # that the corresponding Wikimedia username will be at index N in the first list.
+        try:
+            wiki_user = list(self._usermap.keys())[self._usermap_email_list.index(committer_email)]
+        # If there's no match, just mention the commmitter name in the edit summary, but don't create a user page link.
+        except ValueError:
+            wiki_user_mention = committer_name
+        # If there is a match, create a user page link, since this must be a valid Wikimedia user.
+        else:
+            wiki_user_mention = '[[User:{user}|{user}]]'.format(user=wiki_user)
+        return '{user_mention} | {base_url}/{repo}/commit/{sha} | {message}'.format(
+                user_mention=wiki_user_mention,
                 base_url=base_url,
                 repo=repo_name,
                 sha=commit_sha,
@@ -129,23 +179,34 @@ class PhabRepo:
                     commit.parents[0], commit
                     ).split('\n')
 
-    def _wiki2phab(self):
+    def _wiki2git(self):
         revs = self._pending_revs()
         synced_files = []
         for rev in revs:
-            # Ignore our sync edits in the wiki.
-            if rev[1]['user'] == self.site.username():
+            #
+            # Summary/commit message parsing.
+            #
+            git_commit_message = rev[1]['comment'] or '*** празно резюме ***'
+
+            #
+            # User parsing.
+            #
+            wiki_user = rev[1]['user']
+            # Ignore our own sync edits in the wiki.
+            if wiki_user == self.site.username():
                 continue
-            # Iliev is the only user to have a username on Phabricator that's not the same as the
-            # MediaWiki username, so let Phabricator perform the committer matching by email.
-            elif rev[1]['user'] == 'Iliev':
-                user_mail = 'luchesar.iliev@gmail.com'
-            else:
-                user_mail = ''
-            if not rev[1]['comment']:
-                comment = '*** празно резюме ***'
-            else:
-                comment = rev[1]['comment']
+            try:
+                author = self._usermap[wiki_user]['author']
+                email = self._usermap[wiki_user]['email']
+            except KeyError:
+                author = wiki_user
+                email = ''
+            git_author = git.Actor(author, email)
+            git_committer = git.Actor(author, email)
+
+            #
+            # Page/file parsing.
+            #
             # We cannot have both a file and a directory with the same name, so where we have
             # 'Page' and 'Page/doc', the latter gets converted to 'Page.d/doc'.
             file_name = rev[0].replace('/', '.d/')
@@ -154,6 +215,10 @@ class PhabRepo:
             if self.force_ext and '.d/' not in file_name:
                 file_name = file_name + '.' + self.force_ext
             file_path = os.path.join(self.repo.working_dir, file_name)
+
+            #
+            # Committing.
+            #
             # To avoid conflicts as much as possible, perform git pull right before we apply the
             # change and commit it.
             self._pull()
@@ -162,7 +227,7 @@ class PhabRepo:
                 if rev[2] == 'resync' and os.path.exists(file_path):
                     with open(file_path, 'r') as f:
                         if rev[1]['text'] == f.read().rstrip('\n'):
-                            # The on-wiki and Phabricator versions are the same. No need to resync.
+                            # The on-wiki and Git versions are the same. No need to resync.
                             continue
                 with open(file_path, 'w') as f:
                     f.write(rev[1]['text'] + '\n')
@@ -172,13 +237,11 @@ class PhabRepo:
             else:
                 print('Error: Unknown revision type: "{}"'.format(rev[2]))
                 continue
-            author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
-            committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
-            print('Syncing to Phabricator: {}'.format(file_name))
+            print('Syncing to Git: {}'.format(file_name))
             self.repo.index.commit(
-                    comment,
-                    author=author,
-                    committer=committer,
+                    git_commit_message,
+                    author=git_author,
+                    committer=git_committer,
                     author_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'),
                     commit_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'))
             # Push after each commit. It's inefficient, but should minimize possible conflicts.
@@ -186,7 +249,7 @@ class PhabRepo:
             synced_files.append(file_name)
         return synced_files
 
-    def _phab2wiki(self, synced_from_wiki):
+    def _git2wiki(self, synced_from_wiki):
         # Iterate over a list of the keys, instead of directly on the dictionary. This allows to
         # delete the pending commits from the latter once they are processed.
         commit_list = list(self._pending_commits)
@@ -204,11 +267,15 @@ class PhabRepo:
                 if self.force_ext and '/' not in page_name:
                     page_name = self.re_force_ext.sub('', page_name)
                 page = pwb.Page(self.site, page_name)
-                committer = re.sub(r'\s<>$', '', commit.committer.name)
-                summary = self._create_summary(committer, self.name, commit.hexsha, commit.message)
+                summary = self._create_summary(
+                        commit.committer.name,
+                        commit.committer.email,
+                        self.name,
+                        commit.hexsha,
+                        commit.message)
                 if file_name in synced_from_wiki:
                     # This page has been updated on the wiki in this sync run. To be on the safe
-                    # side, we'll discard the possibly conflicting changes from Phabricator.
+                    # side, we'll discard the possibly conflicting changes from the Git repo.
                     print('Ignoring possibly conflicting changes in {}'.format(file_name))
                     # Sometimes this might lead to out-of-sync situations, so schedule a resync.
                     self._need_resync = True
@@ -220,7 +287,7 @@ class PhabRepo:
                     if str(e).endswith('\'{file}\' not found"'.format(file=file_name)):
                         file_removed = True
                     else:
-                        print('WARNING: Unexpected KeyError exception in _phab2wiki().')
+                        print('WARNING: Unexpected KeyError exception in _git2wiki().')
                 if not file_removed:
                     file_contents_at_commit = b''.join(file_git_blob.data_stream[3].readlines())
                     page.text = file_contents_at_commit.decode('utf-8').rstrip('\n')
@@ -241,69 +308,35 @@ class PhabRepo:
     def sync(self, resync=False):
         if resync:
             self._need_resync = True
-        w2ph_synced_files = self._wiki2phab()
+        w2g_synced_files = self._wiki2git()
         self._pull()
         if self._pending_commits:
-            self._phab2wiki(w2ph_synced_files)
-
-
-def init_repos(config):
-    repos = []
-    for repo in config['repos']:
-        file_regex = re.compile(
-                repo['file_regex'],
-                re.I if repo['regex_nocase'] else 0)
-        repo_path = os.path.join(config['repositories_root'], repo['name'])
-        git_repo = git.Repo(repo_path)
-        site = pwb.Site(
-                code=repo['project']['code'],
-                fam=repo['project']['family'],
-                user=config['mediawiki_username'])
-        repos.append(PhabRepo(repo['name'], git_repo, site,
-                              repo['namespace'], file_regex, repo['force_extension'],
-                              repo['ignore_list'] + config['global_ignore_list']))
-    return repos
-
-
-def read_config():
-    config_file_name = 'phab-sync.config.json'
-    config_files = [
-            config_file_name,
-            os.path.join(Path.home(), '.config/phab-sync', config_file_name),
-            os.path.join('/etc/phab-sync', config_file_name),
-            ]
-    for config_file in config_files:
-        if os.path.exists(config_file):
-            with open(config_file, 'rb') as f:
-                config = json.load(f)
-            break
-    try:
-        return(config)
-    except UnboundLocalError:
-        print('Error: Configuration file not found.', file=sys.stderr)
-        sys.exit(1)
+            self._git2wiki(w2g_synced_files)
 
 
 def main(argv):
     sig_handler = SignalHandler()
-    config = read_config()
-    repos = init_repos(config)
-    #if argv:
-    #    if argv.pop() in ['resync', 'force']:
-    #        for repo in repos:
-    #            print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
-    #            repo.sync(resync=True)
+    git_sync = GitSync()
+    git_sync.read_config()
+    git_sync.init_repos()
+    '''
+    Disabled temporarily.
+
+    if argv:
+        if argv.pop() in ['resync', 'force']:
+            for repo in repos:
+                print('Resyncing repo "{}"...'.format(repo.repo.git_dir))
+                repo.sync(resync=True)
+    '''
     while True:
-        for repo in repos:
+        for repo in git_sync.repos:
             print('Syncing repo "{}"...'.format(repo.repo.git_dir))
             repo.sync()
             # Sleep for a second between repos to catch requests to shutdown faster.
             sig_handler.sleep(1)
         print('Sleeping...')
-        sig_handler.sleep(config['daemon_sleep_seconds'])
+        sig_handler.sleep(git_sync.config['daemon_sleep_seconds'])
 
 
 if __name__ == '__main__':
     main(sys.argv[1:])
-
-# vim: set ts=4 sts=4 sw=4 et:
