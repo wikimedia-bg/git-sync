@@ -294,7 +294,7 @@ class GitRepo:
 
 def main(argv):
     sig_handler = SignalHandler()
-    git_sync = GitSync(name='git-sync', config_file='config.json')
+    git_sync = GitSync()
     git_sync.read_config()
     git_sync.init_repos()
     '''
