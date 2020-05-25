@@ -68,7 +68,7 @@ class GitSync:
                               self.config['usermap']))
 
     def read_config(self):
-        self.config = yaml.load(self._config_file.read_text(), loader=yaml.FullLoader)
+        self.config = yaml.load(self._config_file.read_text(), Loader=yaml.FullLoader)
         if not self.config:
             print('Error: Configuration file not found or empty.', file=sys.stderr)
             sys.exit(1)
