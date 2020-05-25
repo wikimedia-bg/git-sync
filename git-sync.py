@@ -221,7 +221,7 @@ class GitRepo:
                 continue
             print('Syncing to Git: {}'.format(file_name))
             self.repo.index.commit(
-                    comment=git_commit_message,
+                    git_commit_message,
                     author=git_author,
                     committer=git_committer,
                     author_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'),
