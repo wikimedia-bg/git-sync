@@ -64,7 +64,8 @@ class GitSync:
                     user=self.config['mediawiki_username'])
             self.repos.append(GitRepo(repo['name'], git_repo, site,
                               repo['namespace'], file_regex, repo['force_extension'],
-                              repo['ignore_list'] + self.config['global_ignore_list']))
+                              repo['ignore_list'] + self.config['global_ignore_list'],
+                              self.config['usermap']))
 
     def read_config(self):
         self.config = yaml.load(self._config_file.read_text())
@@ -75,7 +76,7 @@ class GitSync:
 
 class GitRepo:
 
-    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores):
+    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores, usermap):
         self.name = name
         self.repo = repo
         self.site = site
@@ -87,6 +88,7 @@ class GitRepo:
         self.ignores = ignores
         self._need_resync = False
         self._pending_commits = {}
+        self._usermap = usermap
 
     def _create_summary(self, committer, repo_name, commit_sha, message):
         base_url = 'https://github.com/wikimedia-bg'
@@ -163,19 +165,30 @@ class GitRepo:
         revs = self._pending_revs()
         synced_files = []
         for rev in revs:
-            # Ignore our sync edits in the wiki.
-            if rev[1]['user'] == self.site.username():
+            #
+            # Summary/commit message parsing.
+            #
+            git_commit_message = rev[1]['comment'] or '*** празно резюме ***'
+
+            #
+            # User parsing.
+            #
+            wiki_user = rev[1]['user']
+            # Ignore our own sync edits in the wiki.
+            if wiki_user == self.site.username():
                 continue
-            # Iliev is the only user to have a username on Phabricator that's not the same as the
-            # MediaWiki username, so let Phabricator perform the committer matching by email.
-            elif rev[1]['user'] == 'Iliev':
-                user_mail = 'luchesar.iliev@gmail.com'
-            else:
-                user_mail = ''
-            if not rev[1]['comment']:
-                comment = '*** празно резюме ***'
-            else:
-                comment = rev[1]['comment']
+            try:
+                author = self._usermap[wiki_user]['author']
+                email = self._usermap[wiki_user]['email']
+            except KeyError:
+                author = wiki_user
+                email = ''
+            git_author = git.Actor(author, email)
+            git_committer = git.Actor(author, email)
+
+            #
+            # Page/file parsing.
+            #
             # We cannot have both a file and a directory with the same name, so where we have
             # 'Page' and 'Page/doc', the latter gets converted to 'Page.d/doc'.
             file_name = rev[0].replace('/', '.d/')
@@ -184,6 +197,10 @@ class GitRepo:
             if self.force_ext and '.d/' not in file_name:
                 file_name = file_name + '.' + self.force_ext
             file_path = os.path.join(self.repo.working_dir, file_name)
+
+            #
+            # Committing.
+            #
             # To avoid conflicts as much as possible, perform git pull right before we apply the
             # change and commit it.
             self._pull()
@@ -202,13 +219,11 @@ class GitRepo:
             else:
                 print('Error: Unknown revision type: "{}"'.format(rev[2]))
                 continue
-            author = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
-            committer = git.Actor(rev[1]['user'].replace(' ', '_'), user_mail)
             print('Syncing to Git: {}'.format(file_name))
             self.repo.index.commit(
-                    comment,
-                    author=author,
-                    committer=committer,
+                    comment=git_commit_message,
+                    author=git_author,
+                    committer=git_committer,
                     author_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'),
                     commit_date=dt.isoformat(rev[1]['timestamp'], timespec='seconds'))
             # Push after each commit. It's inefficient, but should minimize possible conflicts.

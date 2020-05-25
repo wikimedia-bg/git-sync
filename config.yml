@@ -43,3 +43,11 @@ repos:
     regex_nocase: true
     ignore_list: []
     force_extension: null
+
+usermap:
+  - Iliev:
+      author: Luchesar ILIEV
+      email: luchesar.iliev@gmail.com
+  - Borislav:
+      author: Borislav
+      email: b.manolov@gmail.com
