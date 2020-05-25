@@ -50,6 +50,7 @@ class GitSync:
         self._config_file = self._base_path / 'config.yml'
         self.config = {}
         self.repos = []
+        self.usermap_email_list = []
 
     def init_repos(self):
         for repo in self.config['repos']:
@@ -65,18 +66,20 @@ class GitSync:
             self.repos.append(GitRepo(repo['name'], git_repo, site,
                               repo['namespace'], file_regex, repo['force_extension'],
                               repo['ignore_list'] + self.config['global_ignore_list'],
-                              self.config['usermap']))
+                              self.config['usermap'], self.usermap_email_list))
 
     def read_config(self):
         self.config = yaml.load(self._config_file.read_text(), Loader=yaml.FullLoader)
         if not self.config:
             print('Error: Configuration file not found or empty.', file=sys.stderr)
             sys.exit(1)
+        else:
+            self.usermap_email_list = [_['email'] for _ in self.config['usermap'].values()]
 
 
 class GitRepo:
 
-    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores, usermap):
+    def __init__(self, name, repo, site, namespace, title_regex, force_ext, ignores, usermap, usermap_email_list):
         self.name = name
         self.repo = repo
         self.site = site
@@ -89,12 +92,27 @@ class GitRepo:
         self._need_resync = False
         self._pending_commits = {}
         self._usermap = usermap
+        self._usermap_email_list = usermap_email_list
 
-    def _create_summary(self, committer, repo_name, commit_sha, message):
+    def _create_summary(self, committer_name, committer_email, repo_name, commit_sha, message):
         base_url = 'https://github.com/wikimedia-bg'
         message = message.replace('\n', ' ')
-        return '[[User:{user}|{user}]] | {base_url}/{repo}/commit/{sha} | {message}'.format(
-                user=committer,
+        # Try finding the committer email in the usermap dictionary. For this we have two lists:
+        #   * the top-level keys, i.e. the Wikimedia usernames (list(self._usermap.keys()));
+        #   * the email subkeys in the _same_ order (created in GitSync.read_config()).
+        # Because the two lists have the same order, the username in index N in the first list corresponds to the email
+        # in index N in the second list. Thus, if we find the committer email in the second list at index N, we know
+        # that the corresponding Wikimedia username will be at index N in the first list.
+        try:
+            wiki_user = list(self._usermap.keys())[self._usermap_email_list.index(committer_email)]
+        # If there's no match, just mention the commmitter name in the edit summary, but don't create a user page link.
+        except ValueError:
+            wiki_user_mention = committer_name
+        # If there is a match, create a user page link, since this must be a valid Wikimedia user.
+        else:
+            wiki_user_mention = '[[User:{user}|{user}]]'.format(user=wiki_user)
+        return '{user_mention} | {base_url}/{repo}/commit/{sha} | {message}'.format(
+                user_mention=wiki_user_mention,
                 base_url=base_url,
                 repo=repo_name,
                 sha=commit_sha,
@@ -249,8 +267,12 @@ class GitRepo:
                 if self.force_ext and '/' not in page_name:
                     page_name = self.re_force_ext.sub('', page_name)
                 page = pwb.Page(self.site, page_name)
-                committer = re.sub(r'\s<>$', '', commit.committer.name)
-                summary = self._create_summary(committer, self.name, commit.hexsha, commit.message)
+                summary = self._create_summary(
+                        commit.committer.name,
+                        commit.committer.email,
+                        self.name,
+                        commit.hexsha,
+                        commit.message)
                 if file_name in synced_from_wiki:
                     # This page has been updated on the wiki in this sync run. To be on the safe
                     # side, we'll discard the possibly conflicting changes from the Git repo.
