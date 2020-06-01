@@ -127,19 +127,31 @@ class GitRepo:
         return dt.utcfromtimestamp(self.repo.commit('master').committed_date) + td(seconds=1)
 
     def _pending_revs(self):
-        revs = []
+        pending_revs = []
         for page in self._pagelist():
-            pending_revs = page.revisions(endtime=self._last_changed(), content=True)
-            revs += [(page.title(with_ns=False), _, 'edit') for _ in pending_revs]
-            if self._need_resync:
-                # Full re-sync requested, so get the latest revision of _all_ pages in the repo.
-                last_rev = page.latest_revision
-                revs.append((page.title(with_ns=False), {
-                    'user': 'syncbot',
-                    'comment': 'forced resync from wiki',
-                    'text': last_rev['text'],
-                    'timestamp': dt.utcnow(),
-                    }, 'resync'))
+            try:
+                revs_since_last_sync = page.revisions(endtime=self._last_changed(), content=True)
+                candidate_revs = [(page.title(with_ns=False), _, 'edit') for _ in revs_since_last_sync]
+                if self._need_resync:
+                    # Full re-sync requested, so get the latest revision of _all_ pages in the repo.
+                    last_rev = page.latest_revision
+                    candidate_revs.append(
+                            (
+                                page.title(with_ns=False),
+                                {
+                                    'user': 'syncbot',
+                                    'comment': 'forced resync from wiki',
+                                    'text': last_rev['text'],
+                                    'timestamp': dt.utcnow(),
+                                },
+                                'resync',
+                            )
+                    )
+            except pwb.exceptions.NoPage:
+                # Apparently, the page got deleted on-wiki during our processing so scrap the candiate_revs.
+                pass
+            else:
+                pending_revs += candidate_revs
         # If a resync has been requested, it's done.
         self._need_resync = False
         # We need to also check for deleted pages that we keep track of.
@@ -154,15 +166,21 @@ class GitRepo:
         for page_name in deleted_pages:
             for event in self.site.logevents(page=self.namespace + ':' + page_name):
                 if event.type() in ['delete', 'move']:
-                    revs.append((page_name, {
-                        'user': event.user(),
-                        'comment': event.comment(),
-                        'timestamp': event.timestamp(),
-                        }, event.type()))
+                    pending_revs.append(
+                            (
+                                page_name,
+                                {
+                                    'user': event.user(),
+                                    'comment': event.comment(),
+                                    'timestamp': event.timestamp(),
+                                },
+                                event.type(),
+                            )
+                    )
                     # We need only the first (chronologically last) delete or move event.
                     break
-        revs.sort(key=lambda rev: rev[1]['timestamp'])
-        return revs
+        pending_revs.sort(key=lambda rev: rev[1]['timestamp'])
+        return pending_revs
 
     def _pull(self):
         old_master = self.repo.commit('master')
