@@ -6,7 +6,7 @@ User=jss9
 Group=jss9
 Environment=PYTHONPATH=/opt/pywikibot/core:/opt/pywikibot/core/externals:/opt/pywikibot/core/scripts:${PYTHONPATH}
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/jss9/.local/bin/git-sync/git-sync.py resync
+ExecStart=/home/jss9/.local/lib/git-sync/git-sync.py resync
 TimeoutStopSec=300
 KillMode=process
 RestartSec=10
