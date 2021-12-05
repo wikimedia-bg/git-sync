@@ -194,9 +194,9 @@ class GitRepo:
         # This requires Python 3.7+ to keep the insertion order of the dictionary.
         for commit in pull_commits:
             self._pending_commits[commit] = self.repo.git.diff_tree(
-                    '--no-commit-id', '--name-only', '-r',
+                    '--no-commit-id', '--name-only', '-r', '-z',
                     commit.parents[0], commit
-                    ).split('\n')
+                    ).split('\0')[:-1]
 
     def _wiki2git(self):
         revs = self._pending_revs()
