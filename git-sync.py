@@ -306,7 +306,7 @@ class GitRepo:
                     if str(e).endswith('\'{file}\' not found"'.format(file=file_name)):
                         file_removed = True
                     else:
-                        print('WARNING: Unexpected KeyError exception in _git2wiki().')
+                        raise
                 if not file_removed:
                     file_contents_at_commit = b''.join(file_git_blob.data_stream[3].readlines())
                     page.text = file_contents_at_commit.decode('utf-8').rstrip('\n')
