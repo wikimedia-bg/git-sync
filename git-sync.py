@@ -9,6 +9,7 @@ import time
 
 from datetime import datetime as dt
 from datetime import timedelta as td
+from datetime import timezone
 from pathlib import Path
 
 import git
@@ -124,34 +125,37 @@ class GitRepo:
                 if self.title_regex.search(_.title(with_ns=False))]
 
     def _last_changed(self):
-        return dt.utcfromtimestamp(self.repo.commit('master').committed_date) + td(seconds=1)
+        last_commit = dt.fromtimestamp(self.repo.commit('master').committed_date, timezone.utc)
+        return last_commit.replace(tzinfo=None) + td(seconds=1)
 
     def _pending_revs(self):
         pending_revs = []
-        for page in self._pagelist():
+        last_changed = self._last_changed()
+        pages = self.site.preloadpages(self._pagelist(), content=False)
+        for page in pages:
             try:
-                revs_since_last_sync = page.revisions(endtime=self._last_changed(), content=True)
-                candidate_revs = [(page.title(with_ns=False), _, 'edit') for _ in revs_since_last_sync]
+                # preloadpages caches metadata; latest_revision would fetch content for every page.
+                last_rev = page.get_revision(page.latest_revision_id)
+                if last_rev['timestamp'] >= last_changed:
+                    revs_since_last_sync = page.revisions(endtime=last_changed, content=True)
+                    pending_revs += [(page.title(with_ns=False), _, 'edit') for _ in revs_since_last_sync]
                 if self._need_resync:
                     # Full re-sync requested, so get the latest revision of _all_ pages in the repo.
-                    last_rev = page.latest_revision
-                    candidate_revs.append(
+                    pending_revs.append(
                             (
                                 page.title(with_ns=False),
                                 {
                                     'user': 'syncbot',
                                     'comment': 'forced resync from wiki',
-                                    'text': last_rev['text'],
-                                    'timestamp': dt.utcnow(),
+                                    'text': page.get(force=True, get_redirect=True),
+                                    'timestamp': dt.now(timezone.utc).replace(tzinfo=None),
                                 },
                                 'resync',
                             )
                     )
-            except pwb.exceptions.NoPage:
-                # Apparently, the page got deleted on-wiki during our processing so scrap the candiate_revs.
+            except pwb.exceptions.NoPageError:
+                # Apparently, the page got deleted on-wiki during our processing.
                 pass
-            else:
-                pending_revs += candidate_revs
         # If a resync has been requested, it's done.
         self._need_resync = False
         # We need to also check for deleted pages that we keep track of.
@@ -313,13 +317,13 @@ class GitRepo:
                     print('Saving {}'.format(page.title()))
                     try:
                         page.save(summary=summary, botflag=True, quiet=True)
-                    except pwb.data.api.APIError as e:
+                    except pwb.exceptions.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
                 else:
                     print('Deleting {}'.format(page.title()))
                     try:
                         page.delete(reason=summary, prompt=False)
-                    except pwb.data.api.APIError as e:
+                    except pwb.exceptions.APIError as e:
                         print('APIError exception: {}'.format(str(e)), file=sys.stderr)
             # When all files in a commit have been processed, remove it from the pending list.
             del self._pending_commits[commit]
